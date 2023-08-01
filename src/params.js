@@ -1,14 +1,15 @@
 const DEFAULT_QUALITY = 40
 
 function params(req, res, next) {
-  const { url = '', jpeg, bw = '0', l = DEFAULT_QUALITY } = req.query
-  const urlSearchParams = new URLSearchParams({url: Array.isArray(url) ? url.join('&url=') : url})
-  const formattedUrl = urlSearchParams.toString().replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://')
+  let url = req.query.url
+  if (Array.isArray(url)) url = url.join('&url=')
+  if (!url) return res.end('bandwidth-hero-proxy')
 
-  req.params.url = formattedUrl
-  req.params.webp = !jpeg
-  req.params.grayscale = bw !== '0'
-  req.params.quality = parseInt(l, 10)
+  url = url.replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://')
+  req.params.url = url
+  req.params.webp = !req.query.jpeg
+  req.params.grayscale = req.query.bw != 0
+  req.params.quality = parseInt(req.query.l, 10) || DEFAULT_QUALITY
 
   next()
 }
