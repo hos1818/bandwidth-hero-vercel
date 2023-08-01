@@ -1,34 +1,29 @@
-"use strict";
+const isAnimated = require('is-animated')
 
-const isAnimated = require('is-animated');
+const MIN_COMPRESS_LENGTH = process.env.MIN_COMPRESS_LENGTH || 2048
+const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 50 //~100KB
+const APNG_THRESH_LENGTH = MIN_COMPRESS_LENGTH * 100 //~200KB
 
-const MIN_COMPRESS_LENGTH = process.env.MIN_COMPRESS_LENGTH || 2048;
-const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 50; // ~100KB
-const APNG_THRESH_LENGTH = MIN_COMPRESS_LENGTH * 100; // ~200KB
+function shouldCompress(req, buffer) {
+  const { originType, originSize, webp } = req.params
 
-function shouldCompress(request, imageBuffer) {
-  const { mimeType, size, isWebp } = request.params
+  if (!originType.startsWith('image')) return false
+  if (originSize === 0) return false
+  if (webp && originSize < MIN_COMPRESS_LENGTH) return false
+  if (
+    !webp &&
+    (originType.endsWith('png') || originType.endsWith('gif')) &&
+    originSize < MIN_TRANSPARENT_COMPRESS_LENGTH
+  ) {
+    return false
+  }
   
-  if (!mimeType.startsWith('image')) {
-    return false;
+  if((originType.endsWith('png')) && isAnimated(buffer) && originSize < APNG_THRESH_LENGTH){
+      //It's an animated png file, let it pass through through if small enough
+      return false
   }
 
-  if (size === 0 || (isWebp && size < MIN_COMPRESS_LENGTH)) {
-    return false;
-  }
-
-  if (!isWebp && (mimeType.endsWith('png') || mimeType.endsWith('gif'))) {
-    if (size < MIN_TRANSPARENT_COMPRESS_LENGTH) {
-      return false;
-    }
-
-    if (mimeType.endsWith('png') && isAnimated(imageBuffer) && size < APNG_THRESH_LENGTH) {
-      // It's an animated png file, let it pass through if small enough
-      return false;
-    }
-  }
-
-  return true;
+  return true
 }
 
 module.exports = shouldCompress
