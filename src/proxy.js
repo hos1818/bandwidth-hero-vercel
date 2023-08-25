@@ -13,7 +13,7 @@ async function proxy(req, res) {
         method: 'get',
         headers: {
             ...pick(req.headers, ['cookie', 'dnt', 'referer']),
-            'user-agent': 'Bandwidth-Hero Compressor',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
             via: '1.1 bandwidth-hero'
         },
