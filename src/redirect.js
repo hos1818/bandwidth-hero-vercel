@@ -1,13 +1,13 @@
-function redirect(req, res, statusCode = 302) {
-  if (res.headersSent) {
-    return;
-  }
+function redirect(req, res) {
+  if (res.headersSent) return
 
-  res.setHeader('content-length', 0);
-  ['cache-control', 'expires', 'date', 'etag'].forEach(header => res.removeHeader(header));
-  res.setHeader('location', encodeURI(req.params.url));
-
-  res.status(statusCode).end();
+  res.setHeader('content-length', 0)
+  res.removeHeader('cache-control')
+  res.removeHeader('expires')
+  res.removeHeader('date')
+  res.removeHeader('etag')
+  res.setHeader('location', encodeURI(req.params.url))
+  res.status(302).end()
 }
 
-module.exports = redirect;
+module.exports = redirect
