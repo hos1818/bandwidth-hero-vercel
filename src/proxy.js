@@ -1,4 +1,4 @@
-const request = require('request')
+const axios = require('axios')
 const pick = require('lodash').pick
 const shouldCompress = require('./shouldCompress')
 const redirect = require('./redirect')
@@ -7,7 +7,7 @@ const bypass = require('./bypass')
 const copyHeaders = require('./copyHeaders')
 
 function proxy(req, res) {
-  request.get(
+  axios.get(
     req.params.url,
     {
       headers: {
