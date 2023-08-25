@@ -1,43 +1,50 @@
-const axios = require('axios')
-const pick = require('lodash').pick
-const shouldCompress = require('./shouldCompress')
-const redirect = require('./redirect')
-const compress = require('./compress')
-const bypass = require('./bypass')
-const copyHeaders = require('./copyHeaders')
+const axios = require('axios');
+const pick = require('lodash').pick;
+const zlib = require('zlib');
+const shouldCompress = require('./shouldCompress');
+const redirect = require('./redirect');
+const compress = require('./compress');
+const bypass = require('./bypass');
+const copyHeaders = require('./copyHeaders');
 
-function proxy(req, res) {
-  axios.get(
-    req.params.url,
-    {
-      headers: {
-        ...pick(req.headers, ['cookie', 'dnt', 'referer']),
-        'user-agent': 'Bandwidth-Hero Compressor',
-        'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
-        via: '1.1 bandwidth-hero'
-      },
-      timeout: 10000,
-      maxRedirects: 5,
-      encoding: null,
-      strictSSL: false,
-      gzip: true,
-      jar: true
-    },
-    (err, origin, buffer) => {
-      if (err || origin.statusCode >= 400) return redirect(req, res)
+async function proxy(req, res) {
+    const config = {
+        url: req.params.url,
+        method: 'get',
+        headers: {
+            ...pick(req.headers, ['cookie', 'dnt', 'referer']),
+            'user-agent': 'Bandwidth-Hero Compressor',
+            'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
+            via: '1.1 bandwidth-hero'
+        },
+        timeout: 10000,
+        maxRedirects: 5,
+        responseType: 'arraybuffer',
+        validateStatus: status => status < 500,
+        transformResponse: [(data, headers) => {
+            if (headers['content-encoding'] === 'gzip') {
+                return zlib.gunzipSync(data);
+            }
+            return data;
+        }],
+    };
 
-      copyHeaders(origin, res)
-      res.setHeader('content-encoding', 'identity')
-      req.params.originType = origin.headers['content-type'] || ''
-      req.params.originSize = buffer.length
+    try {
+        const origin = await axios(config);
+        
+        copyHeaders(origin, res);
+        res.setHeader('content-encoding', 'identity');
+        req.params.originType = origin.headers['content-type'] || '';
+        req.params.originSize = origin.data.length;
 
-      if (shouldCompress(req, buffer)) {
-        compress(req, res, buffer)
-      } else {
-        bypass(req, res, buffer)
-      }
+        if (shouldCompress(req, origin.data)) {
+            compress(req, res, origin.data);
+        } else {
+            bypass(req, res, origin.data);
+        }
+    } catch (error) {
+        redirect(req, res);
     }
-  )
 }
 
-module.exports = proxy
+module.exports = proxy;
