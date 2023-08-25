@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 'use strict'
-const app = require('express')()
+const express = require('express')
 const helmet = require('helmet')
 const authenticate = require('./src/authenticate')
 const params = require('./src/params')
 const proxy = require('./src/proxy')
 
+const app = express()
 const PORT = process.env.PORT || 8080
 
 app.enable('trust proxy')
