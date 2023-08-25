@@ -9,7 +9,7 @@ const proxy = require('./src/proxy')
 const app = express()
 const PORT = process.env.PORT || 8080
 
-
+/*
 app.use(helmet({
     contentSecurityPolicy: false,   // Depending on your needs, you might not want to set a CSP for a proxy.
     dnsPrefetchControl: false,      // No need to control browser DNS prefetching for a proxy.
@@ -26,7 +26,7 @@ app.use(helmet({
     noSniff: true,                  // Sets X-Content-Type-Options to prevent MIME type sniffing.
     referrerPolicy: { policy: 'no-referrer' } // Do not send a referrer header.
 }));
-
+*/
 
 app.enable('trust proxy')
 app.get('/', authenticate, params, proxy)
