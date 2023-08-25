@@ -1,15 +1,14 @@
-const request = require('request')
-const pick = require('lodash').pick
-const shouldCompress = require('./shouldCompress')
-const redirect = require('./redirect')
-const compress = require('./compress')
-const bypass = require('./bypass')
-const copyHeaders = require('./copyHeaders')
+const axios = require('axios');
+const pick = require('lodash').pick;
+const shouldCompress = require('./shouldCompress');
+const redirect = require('./redirect');
+const compress = require('./compress');
+const bypass = require('./bypass');
+const copyHeaders = require('./copyHeaders');
 
-function proxy(req, res) {
-  request.get(
-    req.params.url,
-    {
+async function proxy(req, res) {
+  try {
+    const response = await axios.get(req.params.url, {
       headers: {
         ...pick(req.headers, ['cookie', 'dnt', 'referer']),
         'user-agent': 'Bandwidth-Hero Compressor',
@@ -18,26 +17,25 @@ function proxy(req, res) {
       },
       timeout: 10000,
       maxRedirects: 5,
-      encoding: null,
-      strictSSL: false,
-      gzip: true,
-      jar: true
-    },
-    (err, origin, buffer) => {
-      if (err || origin.statusCode >= 400) return redirect(req, res)
+      responseType: 'arraybuffer',
+      validateStatus: status => status < 400, // Only reject if status code is >= 400
+      decompress: true
+    });
 
-      copyHeaders(origin, res)
-      res.setHeader('content-encoding', 'identity')
-      req.params.originType = origin.headers['content-type'] || ''
-      req.params.originSize = buffer.length
+    copyHeaders(response.headers, res);
+    req.params.originType = response.headers['content-type'] || '';
+    req.params.originSize = response.data.length;
 
-      if (shouldCompress(req, buffer)) {
-        compress(req, res, buffer)
-      } else {
-        bypass(req, res, buffer)
-      }
+    if (shouldCompress(req, response.data)) {
+      compress(req, res, response.data);
+    } else {
+      bypass(req, res, response.data);
     }
-  )
+
+  } catch (err) {
+    console.error('Error in proxy:', err.message);
+    redirect(req, res);
+  }
 }
 
-module.exports = proxy
+module.exports = proxy;
