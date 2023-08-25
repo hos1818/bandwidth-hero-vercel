@@ -9,7 +9,9 @@ const proxy = require('./src/proxy')
 const app = express()
 const PORT = process.env.PORT || 8080
 
+/*
 app.use(helmet());
+*/
 
 app.enable('trust proxy')
 app.get('/', authenticate, params, proxy)
