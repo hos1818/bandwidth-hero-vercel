@@ -5,13 +5,11 @@ const PASSWORD = process.env.PASSWORD
 function authenticate(req, res, next) {
   if (LOGIN && PASSWORD) {
     const credentials = auth(req)
-    
     if (!credentials || credentials.name !== LOGIN || credentials.pass !== PASSWORD) {
       res.setHeader('WWW-Authenticate', `Basic realm="Bandwidth-Hero Compression Service"`)
-      return res.status(401).json({ error: 'Access denied' }) // Changed to send a JSON response
+
+      return res.status(401).end('Access denied')
     }
-  } else {
-    return res.status(500).json({ error: 'Server misconfiguration, credentials not set.' }) // If environment variables are not set
   }
 
   next()
