@@ -8,26 +8,27 @@ const os = require('os');
 const { URL } = require('url');
 
 async function compress(req, res, input) {
-    const format = req.params.webp ? 'webp' : 'jpeg';
+    /// Despite the 'webp' parameter, we'll be converting to AVIF here. This could be confusing to future readers of your code.
+    const format = req.params.webp ? 'avif' : 'jpeg'; 
     const originType = req.params.originType;
 
-    if (!req.params.grayscale && format === 'webp' && originType.endsWith('gif') && isAnimated(input)) {
+    // Handle animated GIFs separately
+    if (!req.params.grayscale && originType.endsWith('gif') && isAnimated(input)) {
         try {
             const { hostname, pathname } = new URL(req.params.url);
             const path = `${os.tmpdir()}/${hostname + encodeURIComponent(pathname)}`;
 
             await fs.writeFile(`${path}.gif`, input);
 
-            execFile(gif2webp, ['-lossy', '-m', 2, '-q', req.params.quality, '-mt', `${path}.gif`, '-o', `${path}.webp`], async (convErr) => {
-                if (convErr) {
-                    console.error("Error in conversion:", convErr);
+            execFile(gif2webp, ['-lossy', '-m', '2', '-q', req.params.quality, '-mt', `${path}.gif`, '-o', `${path}.webp`], async (err) => {
+                if (err) {
+                    console.error("Error in GIF to WebP conversion:", err);
                     return redirect(req, res);
                 }
-                console.log('GIF Image converted!');
 
                 const data = await fs.readFile(`${path}.webp`);
                 sendImage(res, data, 'webp', req.params.url, req.params.originSize);
-                
+
                 await fs.unlink(`${path}.gif`);
                 await fs.unlink(`${path}.webp`);
             });
@@ -46,6 +47,7 @@ async function compress(req, res, input) {
                 let pixelCount = metadata.width * metadata.height;
                 let compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
                 
+                // Set the Sharp parameters for AVIF
                 sharp(input)
                     .grayscale(req.params.grayscale)
                     .toFormat(format, {
@@ -89,8 +91,8 @@ function adjustCompressionQuality(pixelCount, size, quality) {
 
 
 function sendImage(res, data, imgFormat, url, originSize) {
-    res.setHeader('content-type', `image/${imgFormat}`);
-    res.setHeader('content-length', data.length);
+    res.setHeader('Content-Type', `image/${imgFormat}`);
+    res.setHeader('Content-Length', data.length);
     let filename = (new URL(url).pathname.split('/').pop() || "image") + '.' + imgFormat;
     res.setHeader('Content-Disposition', 'inline; filename="' + filename + '"');
     res.setHeader('x-original-size', originSize);
