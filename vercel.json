@@ -10,8 +10,4 @@
    "routes": [
       { "src": "/(.*)", "dest": "/server.js" }
    ],
-
-   "cleanUrls": true,
-   "trailingSlash": false
-   
 }
