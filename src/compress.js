@@ -8,8 +8,8 @@ const os = require('os');
 const { URL } = require('url');
 
 async function compress(req, res, input) {
-    /// Despite the 'webp' parameter, we'll be converting to AVIF here. This could be confusing to future readers of your code.
-    const format = req.params.webp ? 'avif' : 'jpeg'; 
+   
+    const format = req.params.webp ? 'webp' : 'jpeg'; 
     const originType = req.params.originType;
 
     // Handle animated GIFs separately
