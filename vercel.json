@@ -1,13 +1,10 @@
 {
    "version": 2,
    "name": "bandwidth-hero-proxy",
-   "functions": {
-      "server.js": {
-         "runtime": "nodejs@18.x"
-      }
-   },
-
+   "builds": [
+      { "src": "server.js", "use": "@vercel/node" }
+   ],
    "routes": [
       { "src": "/(.*)", "dest": "/server.js" }
-   ],
+   ]
 }
