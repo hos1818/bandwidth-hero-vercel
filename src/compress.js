@@ -61,7 +61,6 @@ async function compress(req, res, input) {
     }
 }
 
-//t
 function calculateQualityFactor(pixelCount, size) {
   // These thresholds can be adjusted or even made configurable.
   const thresholds = [
