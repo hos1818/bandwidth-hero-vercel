@@ -44,6 +44,9 @@ async function compress(req, res, input) {
                     .grayscale(req.params.grayscale)
                     .toFormat(format, {
                         quality: compressionQuality,
+                        smartSubsample: true, // When true, enables 4:2:0 chroma subsampling. Often smaller file size without significant quality loss.
+                        reductionEffort: 6, // Level of CPU effort to reduce file size, integer between 0 and 6. Higher is slower but produces smaller images.
+                        alphaQuality: 100, // Sets the quality of the alpha layer of the image (0-100). Only relevant if your images have transparency
                         progressive: true,
                         optimizeScans: true
                     })
