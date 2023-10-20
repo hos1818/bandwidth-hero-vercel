@@ -65,18 +65,28 @@ async function compress(req, res, input) {
     }
 }
 
-function adjustCompressionQuality(pixelCount, size, quality) {
-    if (pixelCount > 3000000 || size > 1536000) {
-        quality *= 0.1;
-    } else if (pixelCount > 2000000 && size > 1024000) {
-        quality *= 0.25;
-    } else if (pixelCount > 1000000 && size > 512000) {
-        quality *= 0.5;
-    } else if (pixelCount > 500000 && size > 256000) {
-        quality *= 0.75;
+function calculateQualityFactor(pixelCount, size) {
+  // These thresholds can be adjusted or even made configurable.
+  const thresholds = [
+    { pixels: 3000000, size: 1536000, factor: 0.1 },
+    { pixels: 2000000, size: 1024000, factor: 0.25 },
+    { pixels: 1000000, size: 512000, factor: 0.5 },
+    { pixels: 500000, size: 256000, factor: 0.75 },
+  ];
+
+  for (let threshold of thresholds) {
+    if (pixelCount > threshold.pixels && size > threshold.size) {
+      return threshold.factor;
     }
-    return Math.ceil(quality);
+  }
+  return 1; // default factor
 }
+
+function adjustCompressionQuality(pixelCount, size, quality) {
+  const factor = calculateQualityFactor(pixelCount, size);
+  return Math.ceil(quality * factor);
+}
+
 
 function sendImage(res, data, imgFormat, url, originSize) {
     res.setHeader('content-type', `image/${imgFormat}`);
