@@ -18,7 +18,7 @@ function params(req, res, next) {
 
   if (Array.isArray(url)) url = url.join('&url='); // Consider the logic behind this. Is this the expected behavior for multiple URLs?
   if (!url) {
-    return res.status(400).send('Bandwidth-Hero-No-Url');
+    return res.status(400).send('bandwidth-hero-proxy');
   }
 
   // Remove any strange URL prefixes that may be present.
