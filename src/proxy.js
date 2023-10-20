@@ -67,7 +67,17 @@ async function proxy(req, res) {
             bypass(req, res, origin.data);
         }
     } catch (error) {
-        redirect(req, res);
+        if (error.response) {
+            // The request was made, and the server responded with a status code outside of the range of 2xx
+            console.error('Server responded with status:', error.response.status);
+        } else if (error.request) {
+            // The request was made, but no response was received
+            console.error('No response received:', error.request);
+        } else {
+            // Something happened in setting up the request and triggered an Error
+            console.error('Error setting up request:', error.message);
+        }
+        redirect(req, res);  // You might also consider forwarding the error details
     }
 }
 
