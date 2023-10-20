@@ -44,14 +44,81 @@ async function proxy(req, res) {
         req.params.originType = origin.headers['content-type'] || '';
         req.params.originSize = origin.data.length;
 
+        const contentEncoding = origin.headers['content-encoding'];
+        if (contentEncoding) {
+            switch (contentEncoding) {
+                case 'gzip':
+                    origin.data = await gunzip(origin.data);
+                    break;
+                case 'br':
+                    origin.data = await brotliDecompress(origin.data);
+                    break;
+                case 'deflate':
+                    origin.data = await inflate(origin.data); // Corrected to "inflate" for clarity
+                    break;
+                default:
+                    console.warn(`Unknown content-encoding: ${contentEncoding}`);
+            }
+        }
+
         if (shouldCompress(req, origin.data)) {
             compress(req, res, origin.data);
         } else {
             bypass(req, res, origin.data);
         }
     } catch (error) {
-        redirect(req, res);
+        if (error.response) {
+            // The request was made, and the server responded with a status code outside of the range of 2xx
+            console.error('Server responded with status:', error.response.status);
+        } else if (error.request) {
+            // The request was made, but no response was received
+            console.error('No response received:', error.request);
+        } else {
+            // Something happened in setting up the request and triggered an Error
+            console.error('Error setting up request:', error.message);
+        }
+        redirect(req, res);  // You might also consider forwarding the error details
     }
 }
+
+// For gzip decompression
+function gunzip(data) {
+    return new Promise((resolve, reject) => {
+        zlib.gunzip(data, (error, decompressed) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve(decompressed);
+        });
+    });
+}
+
+// For Brotli decompression
+function brotliDecompress(data) {
+    return new Promise((resolve, reject) => {
+        zlib.brotliDecompress(data, (error, decompressed) => { // Using built-in Brotli support in zlib
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve(decompressed);
+        });
+    });
+}
+
+// For deflate decompression (actually "inflate")
+function inflate(data) {
+    return new Promise((resolve, reject) => {
+        zlib.inflate(data, (error, decompressed) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve(decompressed);
+        });
+    });
+}
+
 
 module.exports = proxy;
