@@ -21,12 +21,21 @@ function copyHeaders(source, target, additionalExcludedHeaders = [], transformFu
         let transformedValue = value;
         if (transformFunction && typeof transformFunction === 'function') {
             try {
-                transformedValue = transformFunction(key, value);
+                const result = transformFunction(key, value);
+
+                // If the transformation result is null, remove the header.
+                if (result === null) {
+                    // Here, you might want to log the header's removal or perform another action.
+                    continue; // Skip to the next header.
+                }
+
+                transformedValue = result; // Could be a new value, or an array of values, or the same value.
             } catch (error) {
                 console.error(`Error transforming header '${key}': ${error.message}`);
                 continue; // Skip this header if an error occurs during transformation.
             }
         }
+
 
         // Set the header, supporting multiple headers with the same name.
         try {
