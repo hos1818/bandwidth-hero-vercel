@@ -9,11 +9,6 @@ const compress = require('./compress');
 const bypass = require('./bypass');
 const copyHeaders = require('./copyHeaders');
 
-// Add the required dependencies for CSS minification
-const postcss = require('postcss');
-const cssnano = require('cssnano');
-
-
 async function proxy(req, res) {
     const config = {
         url: req.params.url,
@@ -21,7 +16,7 @@ async function proxy(req, res) {
         headers: {
             ...pick(req.headers, ['cookie', 'dnt', 'referer']),
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
-            'Accept': 'text/html,text/css,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
             'Accept-Language': 'en-US,en;q=0.9',
             'Connection': 'keep-alive',
             'Accept-Encoding': 'gzip, deflate, br, lzma, lzma2, zstd',
@@ -108,24 +103,10 @@ async function proxy(req, res) {
             }
         }
 
-        // Check if the response is CSS
-        if (req.params.originType && req.params.originType.includes('text/css')) {
-            // Minify CSS using cssnano and postcss
-            const minifiedCss = await minifyCSS(origin.data);
-
-            // Set the response headers for minified CSS
-            res.setHeader('Content-Type', 'text/css');
-            res.setHeader('Content-Length', Buffer.byteLength(minifiedCss));
-
-            // Send the minified CSS to the client
-            res.end(minifiedCss);
+        if (shouldCompress(req, origin.data)) {
+            compress(req, res, origin.data);
         } else {
-            // If the response is not CSS, handle it as before
-            if (shouldCompress(req, origin.data)) {
-                compress(req, res, origin.data);
-            } else {
-                bypass(req, res, origin.data);
-            }
+            bypass(req, res, origin.data);
         }
     } catch (error) {
         if (error.response) {
@@ -207,13 +188,6 @@ function zstdDecompress(data) {
             }
         });
     });
-}
-
-// Function to minify CSS using cssnano and postcss
-async function minifyCSS(css) {
-    const result = await postcss([cssnano])
-        .process(css, { from: undefined });
-    return result.css;
 }
 
 module.exports = proxy;
