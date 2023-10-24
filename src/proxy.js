@@ -31,10 +31,34 @@ async function proxy(req, res) {
         responseType: 'arraybuffer',
         validateStatus: status => status < 500,
         transformResponse: [(data, headers) => {
-            if (headers['content-encoding'] === 'gzip') {
-                return zlib.gunzipSync(data);
+            try {
+                switch (headers['content-encoding']) {
+                    case 'gzip':
+                        return zlib.gunzipSync(data);
+                    case 'deflate':
+                        return zlib.inflateSync(data);
+                    case 'br':
+                        return zlib.brotliDecompressSync(data);
+                    case 'lzma':
+                    case 'lzma2':  // Assuming 'lzma2' is specified like this in 'content-encoding'
+                        return lzma.decompressSync(data);  // Synchronous LZMA/LZMA2 decompression
+                    case 'zstd':
+                        // For Zstandard, we use a synchronous call in a slightly different way
+                        // because the 'zstd-codec' library primarily provides asynchronous methods.
+                        let result;
+                        ZstdCodec.run(zstd => {
+                            const simple = new zstd.Simple();
+                            result = simple.decompress(data);
+                        });
+                        return result;
+                    // Add more cases if needed
+                    default:
+                        return data; // No transformation is needed
+                }
+            } catch (error) {
+                console.error("Error during content decoding:", error);
+                throw error; // or handle the error appropriately
             }
-            return data;
         }],
     };
 
@@ -42,6 +66,13 @@ async function proxy(req, res) {
         const origin = await axios(config);
         
         copyHeaders(origin, res);
+
+        // At this point, any content transformations are done. 
+        // We calculate the content length for the 'Content-Length' header.
+        const contentLength = Buffer.byteLength(origin.data);
+        res.setHeader('Content-Length', contentLength);
+
+        // Ensure the content-encoding is set to 'identity' after any decompression to avoid misleading the client.
         res.setHeader('content-encoding', 'identity');
         req.params.originType = origin.headers['content-type'] || '';
         req.params.originSize = origin.data.length;
