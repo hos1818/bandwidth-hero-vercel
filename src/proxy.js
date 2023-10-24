@@ -1,6 +1,7 @@
 const axios = require('axios');
 const pick = require('lodash').pick;
 const zlib = require('zlib');
+const lzma = require('lzma-native'); // for LZMA/LZMA2
 const shouldCompress = require('./shouldCompress');
 const redirect = require('./redirect');
 const compress = require('./compress');
@@ -55,6 +56,12 @@ async function proxy(req, res) {
                     break;
                 case 'deflate':
                     origin.data = await inflate(origin.data); // Corrected to "inflate" for clarity
+                    break;
+                case 'lzma':
+                    origin.data = await lzmaDecompress(origin.data);
+                    break;
+                case 'lzma2': // Adjust based on the actual content-encoding header value for LZMA2
+                    origin.data = await lzmaDecompress(origin.data);
                     break;
                 default:
                     console.warn(`Unknown content-encoding: ${contentEncoding}`);
@@ -120,5 +127,17 @@ function inflate(data) {
     });
 }
 
+// For LZMA/LZMA2 decompression
+function lzmaDecompress(data) {
+    return new Promise((resolve, reject) => {
+        lzma.decompress(data, (result, error) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve(result);
+        });
+    });
+}
 
 module.exports = proxy;
