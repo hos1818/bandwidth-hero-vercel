@@ -31,34 +31,35 @@ async function proxy(req, res) {
         responseType: 'arraybuffer',
         validateStatus: status => status < 500,
         transformResponse: [(data, headers) => {
-            try {
-                switch (headers['content-encoding']) {
-                    case 'gzip':
-                        return zlib.gunzipSync(data);
-                    case 'deflate':
-                        return zlib.inflateSync(data);
-                    case 'br':
-                        return zlib.brotliDecompressSync(data);
-                    case 'lzma':
-                    case 'lzma2':  // Assuming 'lzma2' is specified like this in 'content-encoding'
-                        return lzma.decompressSync(data);  // Synchronous LZMA/LZMA2 decompression
-                    case 'zstd':
-                        // For Zstandard, we use a synchronous call in a slightly different way
-                        // because the 'zstd-codec' library primarily provides asynchronous methods.
-                        let result;
-                        ZstdCodec.run(zstd => {
-                            const simple = new zstd.Simple();
-                            result = simple.decompress(data);
-                        });
-                        return result;
-                    // Add more cases if needed
-                    default:
-                        return data; // No transformation is needed
-                }
-            } catch (error) {
-                console.error("Error during content decoding:", error);
-                throw error; // or handle the error appropriately
+            if (headers['content-encoding'] === 'gzip') {
+                return zlib.gunzipSync(data);
             }
+            else if (headers['content-encoding'] === 'deflate') {
+                return zlib.inflateSync(data);
+            }
+            else if (headers['content-encoding'] === 'br') {
+                return zlib.brotliDecompressSync(data);
+            }
+            else if (headers['content-encoding'] === 'lzma') {
+                return lzma.decompressSync(data);
+            }
+            else if (headers['content-encoding'] === 'lzma2') {
+                return lzma.decompressSync(data);
+            }
+            else if (headers['content-encoding'] === 'zstd') {
+                // For Zstandard, we use a synchronous call in a slightly different way
+                // because the 'zstd-codec' library primarily provides asynchronous methods.
+                let result;
+                ZstdCodec.run(zstd => {
+                    const simple = new zstd.Simple();
+                    result = simple.decompress(data);
+                });
+                return result;
+            }
+            else{
+                /*Do Nothing*/
+            }
+            return data;
         }],
     };
 
