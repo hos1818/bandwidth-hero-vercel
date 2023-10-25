@@ -67,13 +67,6 @@ async function proxy(req, res) {
         const origin = await axios(config);
 
         copyHeaders(origin, res);
-        
-        // At this point, any content transformations are done. 
-        // We calculate the content length for the 'Content-Length' header.
-        const contentLength = Buffer.byteLength(origin.data);
-        res.setHeader('Content-Length', contentLength);
-
-        // Ensure the content-encoding is set to 'identity' after any decompression to avoid misleading the client.
         res.setHeader('content-encoding', 'identity');
         req.params.originType = origin.headers['content-type'] || '';
         req.params.originSize = origin.data.length;
