@@ -19,7 +19,7 @@ async function proxy(req, res) {
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
             'Accept-Language': 'en-US,en;q=0.9',
             'Connection': 'keep-alive',
-            'Accept-Encoding': 'gzip, deflate, br, lzma, lzma2, zstd',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Upgrade-Insecure-Requests': '1',
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'DNT': '1',
@@ -31,37 +31,13 @@ async function proxy(req, res) {
         responseType: 'arraybuffer',
         validateStatus: status => status < 500,
         transformResponse: [(data, headers) => {
-            try {
-                switch (headers['content-encoding']) {
-                    case 'gzip':
-                        return zlib.gunzipSync(data);
-                    case 'deflate':
-                        return zlib.inflateSync(data);
-                    case 'br':
-                        return zlib.brotliDecompressSync(data);
-                    case 'lzma':
-                    case 'lzma2':  // Assuming 'lzma2' is specified like this in 'content-encoding'
-                        return lzma.decompressSync(data);  // Synchronous LZMA/LZMA2 decompression
-                    case 'zstd':
-                        // For Zstandard, we use a synchronous call in a slightly different way
-                        // because the 'zstd-codec' library primarily provides asynchronous methods.
-                        let result;
-                        ZstdCodec.run(zstd => {
-                            const simple = new zstd.Simple();
-                            result = simple.decompress(data);
-                        });
-                        return result;
-                    // Add more cases if needed
-                    default:
-                        return data; // No transformation is needed
-                }
-            } catch (error) {
-                console.error("Error during content decoding:", error);
-                throw error; // or handle the error appropriately
+            if (headers['content-encoding'] === 'gzip') {
+                return zlib.gunzipSync(data);
             }
+            return data;
         }],
     };
-
+    
     try {
         const origin = await axios(config);
         
