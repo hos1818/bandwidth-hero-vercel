@@ -7,7 +7,7 @@ const fs = require('fs').promises;
 const os = require('os');
 const { URL } = require('url');
 async function compress(req, res, input) {
-    const format = req.params.webp ? 'heif' : 'jpeg';
+    const format = req.params.webp ? 'webp' : 'jpeg';
     const originType = req.params.originType;
     if (!req.params.grayscale && format === 'webp' && originType.endsWith('gif') && isAnimated(input)) {
         try {
@@ -44,7 +44,10 @@ async function compress(req, res, input) {
                     .grayscale(req.params.grayscale)
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
-                        compression: 'hevc' //compression format.
+                        alphaQuality: 100, //quality of alpha layer, integer 0-100.
+                        smartSubsample: true, //use high quality chroma subsampling.
+                        progressive: true,
+                        optimizeScans: true
                     })
                     .toBuffer((err, output, info) => {
                         if (err || !info || res.headersSent) {
