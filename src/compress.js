@@ -44,7 +44,7 @@ async function compress(req, res, input) {
                     .grayscale(req.params.grayscale)
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
-                        compression: 'av1' //compression format AV1 whice is like avif.
+                        compression: 'hevc' //compression format.
                     })
                     .toBuffer((err, output, info) => {
                         if (err || !info || res.headersSent) {
