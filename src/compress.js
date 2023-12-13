@@ -7,7 +7,7 @@ const fs = require('fs').promises;
 const os = require('os');
 const { URL } = require('url');
 async function compress(req, res, input) {
-    const format = req.params.webp ? 'webp' : 'jpeg';
+    const format = req.params.webp ? 'avif' : 'jpeg';
     const originType = req.params.originType;
     if (!req.params.grayscale && format === 'webp' && originType.endsWith('gif') && isAnimated(input)) {
         try {
