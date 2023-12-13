@@ -43,9 +43,7 @@ async function compress(req, res, input) {
                 sharp(input)
                     .grayscale(req.params.grayscale)
                     .toFormat(format, {
-                        quality: compressionQuality,
-                        chromaSubsampling: "'4:2:0'", // When true, enables 4:2:0 chroma subsampling. Often smaller file size without significant quality loss.
-                        effort: 4 //CPU effort, between 0 (fastest) and 9 (slowest)
+                        quality: compressionQuality
                     })
                     .toBuffer((err, output, info) => {
                         if (err || !info || res.headersSent) {
