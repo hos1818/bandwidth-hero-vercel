@@ -24,7 +24,7 @@ async function proxy(req, res) {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'DNT': '1',
             'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
-            via: '1.1 bandwidth-hero'
+            via: '2.0 bandwidth-hero'
         },
         timeout: 10000,
         maxRedirects: 5,
