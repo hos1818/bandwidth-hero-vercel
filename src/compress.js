@@ -6,29 +6,7 @@ const gif2webp = require('gif2webp-bin');
 const fs = require('fs').promises;
 const os = require('os');
 const { URL } = require('url');
-const CleanCSS = require('clean-css');
-
 async function compress(req, res, input) {
-	
-	const cssMinify = async (cssContent) => {
-        try {
-            const minifiedCSS = new CleanCSS().minify(cssContent).styles;
-            return minifiedCSS;
-        } catch (error) {
-            console.error('Error during CSS minification:', error);
-            throw error;
-        }
-    };
-
-    const minifyAndSendCSS = async (cssContent, url, originSize) => {
-        try {
-            const minifiedCSS = await cssMinify(cssContent);
-            sendCSS(res, minifiedCSS, url, originSize);
-        } catch (error) {
-            redirect(req, res);
-        }
-    };
-	
     const format = req.params.webp ? 'webp' : 'jpeg';
     const originType = req.params.originType;
     if (!req.params.grayscale && format === 'webp' && originType.endsWith('gif') && isAnimated(input)) {
@@ -59,19 +37,10 @@ async function compress(req, res, input) {
                     console.error("Error fetching metadata:", err);
                     return redirect(req, res);
                 }
-				
-				if (metadata.format === 'css') {
-					// Handle CSS minification for CSS files
-					const cssContent = input.toString('utf-8');
-					minifyAndSendCSS(cssContent, req.params.url, req.params.originSize);
-				} else {
-					// Handle other image formats
-					let pixelCount = metadata.width * metadata.height;
-					let compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
-
-					// ... (rest of the existing code)
-					
-					sharp(input)
+                let pixelCount = metadata.width * metadata.height;
+                let compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
+                
+                sharp(input)
                     .grayscale(req.params.grayscale)
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
@@ -80,14 +49,13 @@ async function compress(req, res, input) {
                         progressive: true,
                         optimizeScans: true
                     })
-					.toBuffer((err, output, info) => {
+                    .toBuffer((err, output, info) => {
                         if (err || !info || res.headersSent) {
                             console.error("Error in image compression:", err);
                             return redirect(req, res);
                         }
                         sendImage(res, output, format, req.params.url, req.params.originSize);
                     });
-				} 
             });
     }
 }
@@ -126,16 +94,4 @@ function sendImage(res, data, imgFormat, url, originSize) {
     res.status(200);
     res.end(data);
 }
-
-function sendCSS(res, data, url, originSize) {
-    res.setHeader('content-type', 'text/css');
-    res.setHeader('content-length', Buffer.byteLength(data));
-    let filename = (new URL(url).pathname.split('/').pop() || 'style') + '.css';
-    res.setHeader('Content-Disposition', 'inline; filename="' + filename + '"');
-    res.setHeader('x-original-size', originSize);
-    res.setHeader('x-bytes-saved', originSize - Buffer.byteLength(data));
-    res.status(200);
-    res.end(data);
-}
-
 module.exports = compress;
