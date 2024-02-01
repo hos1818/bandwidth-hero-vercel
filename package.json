@@ -12,6 +12,7 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@vercel/nft": "^0.26.2",
     "basic-auth": "^2.0.1",
     "express": "^4.18.2",
     "axios": "^1.6.7",
