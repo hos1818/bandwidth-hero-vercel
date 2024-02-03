@@ -19,7 +19,7 @@
     "is-animated": "^2.0.2",
     "lodash": "^4.17.21",
     "request": "^2.88.2",
-    "sharp": "^0.33.2",
+    "sharp": "^0.32.6",
     "zlib": "^1.0.5",
     "lzma-native": "^8.0.6",
     "zstd-codec": "^0.1.4",
