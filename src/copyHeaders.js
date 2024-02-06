@@ -6,14 +6,15 @@ function copyHeaders(source, target, additionalExcludedHeaders = [], transformFu
 
     // Default headers to exclude, can be extended via function parameters.
     const defaultExcludedHeaders = ['host', 'connection', 'authorization', 'cookie', 'set-cookie', 'content-length', 'transfer-encoding'];
-    const excludedHeaders = [...new Set(defaultExcludedHeaders.concat(additionalExcludedHeaders))]; // Combine and deduplicate arrays.
-
+    // Combine, deduplicate arrays, and create a Set for efficient exclusion checking.
+    const excludedHeaders = new Set(defaultExcludedHeaders.concat(additionalExcludedHeaders).map(header => header.toLowerCase())); // Ensure lower case for case-insensitive comparison.
+    
     // Iterate through the source headers.
     for (const [key, value] of Object.entries(source.headers)) {
         const headerKeyLower = key.toLowerCase();
 
-        // Skip excluded headers.
-        if (excludedHeaders.includes(headerKeyLower)) {
+        // Skip excluded headers using the Set's efficient lookup.
+        if (excludedHeaders.has(headerKeyLower)) {
             continue;
         }
 
