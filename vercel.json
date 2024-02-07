@@ -1,6 +1,6 @@
 {
    "functions": {
-      "server.js": {"runtime": "node-js"}
+      "server.js": {"runtime": "node.js"}
    },
    "rewrites": [
       { "source": "/(.*)", "destination": "/server.js" }
