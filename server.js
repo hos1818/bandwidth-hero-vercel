@@ -2,8 +2,6 @@
 'use strict'
 const express = require('express')
 const morgan = require('morgan')
-const expressValidator = require('express-validator')
-const helmet = require('helmet')
 const authenticate = require('./src/authenticate')
 const params = require('./src/params')
 const proxy = require('./src/proxy')
@@ -13,11 +11,6 @@ const PORT = process.env.PORT || 8080
 
 // HTTP request logging
 app.use(morgan('combined'))
-
-// Body Parsing and Validation
-app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
-app.use(expressValidator())
 
 app.enable('trust proxy')
 app.get('/', authenticate, params, proxy)
