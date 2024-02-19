@@ -23,13 +23,7 @@
     "lzma-native": "^8.0.6",
     "zstd-codec": "^0.1.4",
     "validator": "^13.11.0",
-    "morgan": "^1.10.0",
-    "express-validator": "^7.0.1",
-    "uglify-js": "^3.17.4",
-    "clean-css": "^5.3.2",
-    "node-cache": "^5.1.2",
-    "helmet": "^7.0.0",
-    "express-async-errors": "^3.1.1"
+    "morgan": "^1.10.0"
   },
   "engines": {
     "node": "20.x"
