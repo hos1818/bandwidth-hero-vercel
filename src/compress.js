@@ -2,7 +2,6 @@ const sharp = require('sharp');
 const redirect = require('./redirect');
 const isAnimated = require('is-animated');
 const { execFile } = require('child_process');
-const gif2webp = require('gif2webp-bin');
 const fs = require('fs').promises;
 const os = require('os');
 const { URL } = require('url');
@@ -17,7 +16,7 @@ async function compress(req, res, input) {
             }
             let pixelCount = metadata.width * metadata.height;
             let compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
-            if (format === 'webp' && originType.endsWith('gif') && isAnimated(input)) {
+            if (format === 'webp' && isAnimated(input)) {
                 sharp(input, { animated: true })
                     .grayscale(req.params.grayscale)
                     .toFormat(format, {
