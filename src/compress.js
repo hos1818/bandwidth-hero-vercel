@@ -18,7 +18,7 @@ async function compress(req, res, input) {
 			let pixelCount = metadata.width * metadata.height;
 			let compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
 			
-			sharp(input)
+			sharp(input, { animated: isAnimated(input))
 				.grayscale(req.params.grayscale)
 				.toFormat(format, {
 					quality: compressionQuality, //output image quality.
