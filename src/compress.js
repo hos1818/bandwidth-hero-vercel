@@ -18,7 +18,7 @@ async function compress(req, res, input) {
             let pixelCount = metadata.width * metadata.height;
             let compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
             if (format === 'webp' && originType.endsWith('gif') && isAnimated(input)) {
-                sharp(input, { animated: isAnimated(input) })
+                sharp(input, { animated: true })
                     .grayscale(req.params.grayscale)
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
