@@ -9,55 +9,32 @@ const { URL } = require('url');
 async function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
     const originType = req.params.originType;
-    if (!req.params.grayscale && format === 'webp' && originType.endsWith('gif') && isAnimated(input)) {
-        try {
-            const { hostname, pathname } = new URL(req.params.url);
-            const path = `${os.tmpdir()}/${hostname + encodeURIComponent(pathname)}`;
-            await fs.writeFile(`${path}.gif`, input);
-            execFile(gif2webp, ['-lossy', '-m', 2, '-q', req.params.quality, '-mt', `${path}.gif`, '-o', `${path}.webp`], async (convErr) => {
-                if (convErr) {
-                    console.error("Error in conversion:", convErr);
-                    return redirect(req, res);
-                }
-                console.log('GIF Image converted!');
-                const data = await fs.readFile(`${path}.webp`);
-                sendImage(res, data, 'webp', req.params.url, req.params.originSize);
-                
-                await fs.unlink(`${path}.gif`);
-                await fs.unlink(`${path}.webp`);
-            });
-        } catch (error) {
-            console.error("Error in GIF processing:", error);
-            redirect(req, res);
-        }
-    } else {
-        sharp(input)
-            .metadata(async (err, metadata) => {
-                if (err) {
-                    console.error("Error fetching metadata:", err);
-                    return redirect(req, res);
-                }
-                let pixelCount = metadata.width * metadata.height;
-                let compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
-                
-                sharp(input)
-                    .grayscale(req.params.grayscale)
-                    .toFormat(format, {
-                        quality: compressionQuality, //output image quality.
-                        alphaQuality: 100, //quality of alpha layer, integer 0-100.
-                        smartSubsample: true, //use high quality chroma subsampling.
-                        progressive: true,
-                        optimizeScans: true
-                    })
-                    .toBuffer((err, output, info) => {
-                        if (err || !info || res.headersSent) {
-                            console.error("Error in image compression:", err);
-                            return redirect(req, res);
-                        }
-                        sendImage(res, output, format, req.params.url, req.params.originSize);
-                    });
-            });
-    }
+	sharp(input, { animated: isAnimated(input) })
+		.metadata(async (err, metadata) => {
+			if (err) {
+				console.error("Error fetching metadata:", err);
+				return redirect(req, res);
+			}
+			let pixelCount = metadata.width * metadata.height;
+			let compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
+			
+			sharp(input)
+				.grayscale(req.params.grayscale)
+				.toFormat(format, {
+					quality: compressionQuality, //output image quality.
+					alphaQuality: 100, //quality of alpha layer, integer 0-100.
+					smartSubsample: true, //use high quality chroma subsampling.
+					progressive: true,
+					optimizeScans: true
+				})
+				.toBuffer((err, output, info) => {
+					if (err || !info || res.headersSent) {
+						console.error("Error in image compression:", err);
+						return redirect(req, res);
+					}
+					sendImage(res, output, format, req.params.url, req.params.originSize);
+				});
+		});
 }
 
 //t
