@@ -9,47 +9,51 @@ const { URL } = require('url');
 async function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
     const originType = req.params.originType;
-	sharp(input)
-		.metadata(async (err, metadata) => {
-			if (err) {
-				console.error("Error fetching metadata:", err);
-				return redirect(req, res);
-			}
-			let pixelCount = metadata.width * metadata.height;
-			let compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
-			if (format === 'webp' && originType.endsWith('gif') && isAnimated(input)) {
-				sharp(input, { animated: true })
-					.grayscale(req.params.grayscale)
-					.toFormat(format, {
-						quality: compressionQuality, //output image quality.
-						loop: 0
-					})
-					.toBuffer((err, output, info) => {
-						if (err || !info || res.headersSent) {
-							console.error("Error in image compression:", err);
-							return redirect(req, res);
-						}
-						sendImage(res, output, format, req.params.url, req.params.originSize);
-					});
-			} else {
-				sharp(input)
-					.grayscale(req.params.grayscale)
-					.toFormat(format, {
-						quality: compressionQuality, //output image quality.
-						alphaQuality: 100, //quality of alpha layer, integer 0-100.
-						smartSubsample: true, //use high quality chroma subsampling.
-						progressive: true,
-						optimizeScans: true
-					})
-					.toBuffer((err, output, info) => {
-						if (err || !info || res.headersSent) {
-							console.error("Error in image compression:", err);
-							return redirect(req, res);
-						}
-						sendImage(res, output, format, req.params.url, req.params.originSize);
-					});
-			}
-		});
+    sharp(input, { animated: isAnimated(input) })
+        .metadata(async (err, metadata) => {
+            if (err) {
+                console.error("Error fetching metadata:", err);
+                return redirect(req, res);
+            }
+            let pixelCount = metadata.width * metadata.height;
+            let compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
+            if (format === 'webp' && originType.endsWith('gif') && isAnimated(input)) {
+                sharp(input, { animated: isAnimated(input) })
+                    .grayscale(req.params.grayscale)
+                    .toFormat(format, {
+                        quality: compressionQuality, //output image quality.
+                        loop: 0,
+			alphaQuality: 100, //quality of alpha layer, integer 0-100.
+                        smartSubsample: true, //use high quality chroma subsampling.
+                        progressive: true,
+                        optimizeScans: true
+                    })
+                    .toBuffer((err, output, info) => {
+                        if (err || !info || res.headersSent) {
+                            console.error("Error in image compression:", err);
+                            return redirect(req, res);
+                        }
+                        sendImage(res, output, format, req.params.url, req.params.originSize);
+                    });
+            } else {
+                sharp(input)
+                    .grayscale(req.params.grayscale)
+                    .toFormat(format, {
+                        quality: compressionQuality, //output image quality.
+                        alphaQuality: 100, //quality of alpha layer, integer 0-100.
+                        smartSubsample: true, //use high quality chroma subsampling.
+                        progressive: true,
+                        optimizeScans: true
+                    })
+                    .toBuffer((err, output, info) => {
+                        if (err || !info || res.headersSent) {
+                            console.error("Error in image compression:", err);
+                            return redirect(req, res);
+                        }
+                        sendImage(res, output, format, req.params.url, req.params.originSize);
+                    });
+            }
+        });
 }
 
 //t
