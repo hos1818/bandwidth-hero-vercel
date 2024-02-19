@@ -8,7 +8,7 @@ const { URL } = require('url');
 async function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
     const originType = req.params.originType;
-    sharp(input, { animated: isAnimated(input) })
+    sharp(input)
         .metadata(async (err, metadata) => {
             if (err) {
                 console.error("Error fetching metadata:", err);
