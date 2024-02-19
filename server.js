@@ -7,7 +7,7 @@ const params = require('./src/params')
 const proxy = require('./src/proxy')
 
 const app = express()
-const PORT = process.env.PORT || 8080
+const PORT = process.env.PORT || 443
 
 // HTTP request logging
 app.use(morgan('combined'))
