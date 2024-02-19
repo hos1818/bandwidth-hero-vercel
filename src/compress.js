@@ -82,10 +82,15 @@ function adjustCompressionQuality(pixelCount, size, quality) {
 function sendImage(res, data, imgFormat, url, originSize) {
     res.setHeader('content-type', `image/${imgFormat}`);
     res.setHeader('content-length', data.length);
-    let filename = (new URL(url).pathname.split('/').pop() || "image") + '.' + imgFormat;
-    res.setHeader('Content-Disposition', 'inline; filename="' + filename + '"');
-    res.setHeader('x-original-size', originSize);
-    res.setHeader('x-bytes-saved', originSize - data.length);
+    let filename = encodeURIComponent(new URL(url).pathname.split('/').pop() || "image") + '.' + imgFormat;
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // Ensure x-original-size is a positive integer
+    let safeOriginSize = Math.max(originSize, 0);
+    res.setHeader('x-original-size', safeOriginSize);
+    // Calculate bytes saved and ensure it's not negative
+    let bytesSaved = Math.max(safeOriginSize - data.length, 0);
+    res.setHeader('x-bytes-saved', bytesSaved);
     res.status(200);
     res.end(data);
 }
