@@ -13,21 +13,17 @@ function isValidUrl(urlString) {
     }
 
     try {
-        const parsedUrl = new URL(urlString); // Parsing might throw an error for invalid URLs
+        // Normalize the URL to ensure consistency
+        const normalizedUrl = normalizeUrl(urlString);
+        const parsedUrl = new URL(normalizedUrl); // Parsing might throw an error for invalid URLs.
 
         // Check if the URL uses an acceptable protocol.
-		const allowedProtocols = ['http:', 'https:']; // Add other allowed schemes as needed
+        const allowedProtocols = ['http:', 'https:']; // Add other allowed schemes as needed
         if (!allowedProtocols.includes(parsedUrl.protocol)) {
             console.error(`Invalid URL protocol: ${parsedUrl.protocol}`);
             return false;
         }
 
-		// Check against a blacklist of hosts
-        const blockedHosts = ['challenges.cloudflare.com', 'recaptcha.net/recaptcha/api2', 'external-preview.redd.it']; // Add trusted hosts
-        if (blockedHosts.includes(parsedUrl.hostname)) {
-            console.error(`Invalid URL host: ${parsedUrl.hostname}`);
-            return false;
-        }
 
         // Add more checks if necessary. For example, you might want to ensure
         // the URL host belongs to a list of trusted domains.
@@ -40,6 +36,10 @@ function isValidUrl(urlString) {
     }
 }
 
+function normalizeUrl(urlString) {
+    // Remove trailing slashes and normalize percent encoding
+    return urlString.trim().replace(/\/+$/, '').replace(/%20/g, ' ');
+}
 
 function redirect(req, res, statusCode = 302) {
     if (!req.params.url) {
