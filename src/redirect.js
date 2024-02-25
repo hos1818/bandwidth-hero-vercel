@@ -24,6 +24,12 @@ function isValidUrl(urlString) {
             return false;
         }
 
+        // Check against a blacklist of hosts
+        const blockedHosts = ['preview.redd.it']; // Add blacklist hosts
+        if (blockedHosts.includes(parsedUrl.hostname)) {
+            console.error(`Invalid URL host: ${parsedUrl.hostname}`);
+            return false;
+        }
 
         // Add more checks if necessary. For example, you might want to ensure
         // the URL host belongs to a list of trusted domains.
