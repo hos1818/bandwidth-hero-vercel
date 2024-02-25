@@ -15,9 +15,17 @@ function isValidUrl(urlString) {
     try {
         const parsedUrl = new URL(urlString); // Parsing might throw an error for invalid URLs
 
-        // Check if the URL uses an acceptable protocol (http or https).
-        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        // Check if the URL uses an acceptable protocol.
+		const allowedProtocols = ['http:', 'https:']; // Add other allowed schemes as needed
+        if (!allowedProtocols.includes(parsedUrl.protocol)) {
             console.error(`Invalid URL protocol: ${parsedUrl.protocol}`);
+            return false;
+        }
+
+		// Check against a blacklist of hosts
+        const blockedHosts = ['challenges.cloudflare.com', 'recaptcha.net/recaptcha/api2', 'external-preview.redd.it']; // Add trusted hosts
+        if (blockedHosts.includes(parsedUrl.hostname)) {
+            console.error(`Invalid URL host: ${parsedUrl.hostname}`);
             return false;
         }
 
