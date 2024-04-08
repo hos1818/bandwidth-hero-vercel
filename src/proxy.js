@@ -1,6 +1,6 @@
 const axios = require('axios');
 const pick = require('lodash').pick;
-const zlib = require('zlib');
+const zlib = require('node:zlib');
 const lzma = require('lzma-native'); // for LZMA/LZMA2
 const ZstdCodec = require('zstd-codec').ZstdCodec; // for Zstandard
 const shouldCompress = require('./shouldCompress');
