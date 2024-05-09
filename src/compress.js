@@ -1,9 +1,9 @@
 const sharp = require('sharp');
 const redirect = require('./redirect');
 const isAnimated = require('is-animated');
-const { execFile } = require('child_process');
-const fs = require('fs').promises;
-const os = require('os');
+const { execFile } = require('node:child_process');
+const fs = require('node:fs/promises');
+const os = require('node:os');
 const { URL } = require('url');
 async function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
