@@ -1,5 +1,5 @@
 const { URL } = require('url');
-const stream = require('stream');
+const stream = require('node:stream'); 
 
 function forwardWithoutProcessing(req, res, buffer) {
   // Validate inputs
