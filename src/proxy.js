@@ -106,6 +106,9 @@ async function proxy(req, res) {
         if (error.response) {
             // The request was made, and the server responded with a status code outside of the range of 2xx
             console.error('Server responded with status:', error.response.status);
+        } else if (error.response.status === 403) {
+            // You can handle the error further here, or return a specific response
+            console.error('Access to the resource is forbidden.');
         } else if (error.request) {
             // The request was made, but no response was received
             console.error('No response received:', error.request);
