@@ -21,4 +21,4 @@ app.listen(PORT, () => {
     // For additional setup like initializing performance monitoring agents, add here.
 })
 
-module.exports = app
+module.exports = app;
