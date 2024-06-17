@@ -19,3 +19,5 @@ app.listen(PORT, () => {
     console.log(`Listening on ${PORT}`)
     // For additional setup like initializing performance monitoring agents, add here.
 })
+
+module.exports = app
