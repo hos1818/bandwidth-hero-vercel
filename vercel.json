@@ -2,7 +2,7 @@
    "name": "bandwidth-hero-proxy",
    "installCommand": "pnpm install",
    "functions": {
-      "server.js": {
+      "api/server.js": {
          "runtime": "@vercel/node@3.1.7"
       }
    },
