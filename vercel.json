@@ -3,7 +3,7 @@
    "installCommand": "pnpm install",
    "functions": {
       "server.js": {
-         "runtime": "@vercel/node@latest"
+         "runtime": "@vercel/node@3.1.7"
       }
    },
    "rewrites": [
