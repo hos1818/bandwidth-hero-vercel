@@ -10,7 +10,7 @@
   },
   "packageManager": "pnpm@9.3.0",
   "scripts": {
-    "start": "node server.js"
+    "start": "node api/server.js"
   },
   "dependencies": {
     "basic-auth": "^2.0.1",
