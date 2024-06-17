@@ -1,8 +1,8 @@
 {
    "name": "bandwidth-hero-proxy",
-   "installCommand": "pnpm i",
+   "installCommand": "pnpm install",
    "functions": {
-      "/server.js": {
+      "server.js": {
          "runtime": "@vercel/node@latest"
       }
    },
