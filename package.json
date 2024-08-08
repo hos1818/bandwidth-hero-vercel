@@ -20,7 +20,7 @@
     "lodash": "^4.17.21",
     "sharp": "^0.33.4",
     "lzma-native": "^8.0.6",
-    "zstd-codec": "^0.1.4",
+    "zstd-codec": "^0.1.5",
     "validator": "^13.12.0",
     "morgan": "^1.10.0"
   },
