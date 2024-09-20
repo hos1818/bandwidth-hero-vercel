@@ -95,3 +95,4 @@ function sendImage(res, data, imgFormat, url, originSize) {
     res.end(data);
 }
 module.exports = compress;
+
