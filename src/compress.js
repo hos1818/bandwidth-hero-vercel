@@ -14,10 +14,10 @@ async function compress(req, res, input) {
         const compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
 
         // Apply image processing
-        let image = sharp(input).grayscale(req.params.grayscale);
-
         if (format === 'webp' && isAnimated(input)) {
-            image = image.animated(true);
+            let image = sharp(input, { animated: true }).grayscale(req.params.grayscale);
+        } else {
+            let image = sharp(input).grayscale(req.params.grayscale);
         }
 
         image = image.toFormat(format, {
