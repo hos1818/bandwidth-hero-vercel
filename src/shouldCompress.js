@@ -36,7 +36,7 @@ function shouldCompress(req, buffer) {
 
     // Validate image type
     if (!isImageType(originType)) {
-        console.log(Skipping compression for non-image type: ${originType});
+        console.log(`Skipping compression for non-image type: ${originType}`);
         return false;
     }
 
@@ -50,7 +50,7 @@ function shouldCompress(req, buffer) {
     if (isNotEligibleForWebpCompression(webp, originSize) ||
         isBelowSizeThresholdForCompression(originType, originSize, webp) ||
         isSmallAnimatedPng(originType, buffer, originSize)) {
-        console.log(No compression applied for content of type: ${originType} and size: ${originSize});
+        console.log(`No compression applied for content of type: ${originType} and size: ${originSize}`);
         return false;
     }
 
@@ -59,4 +59,3 @@ function shouldCompress(req, buffer) {
 }
 
 module.exports = shouldCompress;
-
