@@ -22,7 +22,7 @@ async function compress(req, res, input) {
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
                         loop: 0,
-			alphaQuality: 80, //quality of alpha layer, integer 0-100.
+			alphaQuality: 100, //quality of alpha layer, integer 0-100.
                         smartSubsample: true, //use high quality chroma subsampling.
                         progressive: true,
                         optimizeScans: true
@@ -39,7 +39,7 @@ async function compress(req, res, input) {
                     .grayscale(req.params.grayscale)
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
-                        alphaQuality: 80, //quality of alpha layer, integer 0-100.
+                        alphaQuality: 100, //quality of alpha layer, integer 0-100.
                         smartSubsample: true, //use high quality chroma subsampling.
                         progressive: true,
                         optimizeScans: true
@@ -80,10 +80,10 @@ function adjustCompressionQuality(pixelCount, size, quality) {
 
 
 function sendImage(res, data, imgFormat, url, originSize) {
-    res.setHeader('content-type', image/${imgFormat});
+    res.setHeader('content-type', `image/${imgFormat}`);
     res.setHeader('content-length', data.length);
     let filename = encodeURIComponent(new URL(url).pathname.split('/').pop() || "image") + '.' + imgFormat;
-    res.setHeader('Content-Disposition', inline; filename="${filename}");
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     // Ensure x-original-size is a positive integer
     let safeOriginSize = Math.max(originSize, 0);
@@ -95,4 +95,3 @@ function sendImage(res, data, imgFormat, url, originSize) {
     res.end(data);
 }
 module.exports = compress;
-
