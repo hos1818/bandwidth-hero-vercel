@@ -1,44 +1,58 @@
 const sharp = require('sharp');
 const redirect = require('./redirect');
 const isAnimated = require('is-animated');
+const { execFile } = require('node:child_process');
+const fs = require('node:fs/promises');
+const os = require('node:os');
 const { URL } = require('url');
-
-// Main function to compress the image
 async function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
     const originType = req.params.originType;
-
-    try {
-        const metadata = await sharp(input).metadata();
-        const pixelCount = metadata.width * metadata.height;
-        const compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
-
-        // Apply image processing
-        if (format === 'webp' && isAnimated(input)) {
-            let image = sharp(input, { animated: true }).grayscale(req.params.grayscale);
-        } else {
-            let image = sharp(input).grayscale(req.params.grayscale);
-        }
-
-        image = image.toFormat(format, {
-            quality: compressionQuality,
-            alphaQuality: 80,
-            smartSubsample: true,
-            progressive: true,
-            optimizeScans: true
+    sharp(input)
+        .metadata(async (err, metadata) => {
+            if (err) {
+                console.error("Error fetching metadata:", err);
+                return redirect(req, res);
+            }
+            let pixelCount = metadata.width * metadata.height;
+            let compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
+            if (format === 'webp' && isAnimated(input)) {
+                sharp(input, { animated: true })
+                    .grayscale(req.params.grayscale)
+                    .toFormat(format, {
+                        quality: compressionQuality, //output image quality.
+                        loop: 0,
+			            alphaQuality: 80, //quality of alpha layer, integer 0-100.
+                        smartSubsample: true, //use high quality chroma subsampling.
+                        progressive: true,
+                        optimizeScans: true
+                    })
+                    .toBuffer((err, output, info) => {
+                        if (err || !info || res.headersSent) {
+                            console.error("Error in image compression:", err);
+                            return redirect(req, res);
+                        }
+                        sendImage(res, output, format, req.params.url, req.params.originSize);
+                    });
+            } else {
+                sharp(input)
+                    .grayscale(req.params.grayscale)
+                    .toFormat(format, {
+                        quality: compressionQuality, //output image quality.
+                        alphaQuality: 80, //quality of alpha layer, integer 0-100.
+                        smartSubsample: true, //use high quality chroma subsampling.
+                        progressive: true,
+                        optimizeScans: true
+                    })
+                    .toBuffer((err, output, info) => {
+                        if (err || !info || res.headersSent) {
+                            console.error("Error in image compression:", err);
+                            return redirect(req, res);
+                        }
+                        sendImage(res, output, format, req.params.url, req.params.originSize);
+                    });
+            }
         });
-
-        const { data, info } = await image.toBuffer({ resolveWithObject: true });
-
-        if (!info || res.headersSent) {
-            throw new Error("Headers sent or no image info available.");
-        }
-
-        sendImage(res, data, format, req.params.url, req.params.originSize);
-    } catch (err) {
-        console.error("Error in image compression:", err);
-        return redirect(req, res);
-    }
 }
 
 // Adjust compression quality based on image properties
