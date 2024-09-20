@@ -1,44 +1,60 @@
-const { URL } = require('url');
-const stream = require('node:stream'); 
+function copyHeaders(source, target, additionalExcludedHeaders = [], transformFunction = null) {
+    // Validate the provided objects to avoid runtime errors.
+    if (!source || !source.headers || !target) {
+        throw new Error('Invalid source or target objects provided');
+    }
 
-function forwardWithoutProcessing(req, res, buffer) {
-  // Validate inputs
-  if (!req || !res) {
-    throw new Error("Request or Response objects are missing or invalid");
-  }
+    // Default headers to exclude, can be extended via function parameters.
+    const defaultExcludedHeaders = ['host', 'connection', 'authorization', 'cookie', 'set-cookie', 'content-length', 'transfer-encoding'];
+    // Combine, deduplicate arrays, and create a Set for efficient exclusion checking.
+    const excludedHeaders = new Set(defaultExcludedHeaders.concat(additionalExcludedHeaders).map(header => header.toLowerCase())); // Ensure lower case for case-insensitive comparison.
+    
+    // Iterate through the source headers.
+    for (const [key, value] of Object.entries(source.headers)) {
+        const headerKeyLower = key.toLowerCase();
 
-  if (!buffer || !Buffer.isBuffer(buffer)) {
-    console.error("Invalid or missing buffer"); // Consider more sophisticated logging if necessary.
-    return res.status(500).send("Invalid or missing buffer");
-  }
+        // Skip excluded headers using the Set's efficient lookup.
+        if (excludedHeaders.has(headerKeyLower)) {
+            continue;
+        }
 
-  // Set headers to maintain the original content and enhance security
-  if (req.params.originType) {
-    res.setHeader('Content-Type', req.params.originType);
-  }
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY'); // This may need to be adjusted based on your application's needs.
+        // Initialize transformedValue with the original value in case there's no transformation needed.
+        let transformedValue = value;
 
-  // Flag indicating the content is being forwarded without processing
-  res.setHeader('x-proxy-bypass', 1);
+        // Check if there's a transform function, apply it, and handle its response appropriately.
+        if (transformFunction && typeof transformFunction === 'function') {
+            try {
+                const transformationResult = transformFunction(key, value);
 
-  // Set content length for proper content handling
-  res.setHeader('content-length', buffer.length);
+                // If the transformation result is null, remove the header.
+                if (transformationResult !== undefined) {
+                    // If the transformation result is explicitly null, skip setting this header.
+                    if (transformationResult === null) {
+                        continue; // Skip to the next header without logging an error.
+                    }
 
-  // Extract and decode the filename, and set it in the content disposition header
-  const urlPath = new URL(req.params.url).pathname;
-  const filename = decodeURIComponent(urlPath.split('/').pop());
-  if (filename) {
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-  }
+                    // Apply the transformation result to the header.
+                    transformedValue = transformationResult;
+                }
+                // If transformationResult is undefined, it means no change to the header value.
+            } catch (error) {
+                console.error(`Error transforming header '${key}': ${error.message}`);
+                continue; // Skip this header if an error occurs during transformation.
+            }
+        }
 
-  // For large files, consider using streams to pipe the content and reduce memory overhead
-  const bufferStream = new stream.PassThrough();
-  bufferStream.end(buffer);
-  bufferStream.pipe(res);
 
-  // You may want to log this action for monitoring purposes
-  console.log(`Forwarded without processing: ${req.params.url}`);
+        // Set the header, supporting multiple headers with the same name.
+        try {
+            if (Array.isArray(transformedValue)) {
+                transformedValue.forEach(val => target.setHeader(key, val));
+            } else {
+                target.setHeader(key, transformedValue);
+            }
+        } catch (e) {
+            console.error(`Error setting header '${key}': ${e.message}`);
+        }
+    }
 }
 
-module.exports = forwardWithoutProcessing;
+module.exports = copyHeaders;
