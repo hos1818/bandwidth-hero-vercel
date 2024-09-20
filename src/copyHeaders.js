@@ -38,7 +38,7 @@ function copyHeaders(source, target, additionalExcludedHeaders = [], transformFu
                 }
                 // If transformationResult is undefined, it means no change to the header value.
             } catch (error) {
-                console.error(Error transforming header '${key}': ${error.message});
+                console.error(`Error transforming header '${key}': ${error.message}`);
                 continue; // Skip this header if an error occurs during transformation.
             }
         }
@@ -52,7 +52,7 @@ function copyHeaders(source, target, additionalExcludedHeaders = [], transformFu
                 target.setHeader(key, transformedValue);
             }
         } catch (e) {
-            console.error(Error setting header '${key}': ${e.message});
+            console.error(`Error setting header '${key}': ${e.message}`);
         }
     }
 }
