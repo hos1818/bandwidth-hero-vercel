@@ -22,7 +22,7 @@ async function compress(req, res, input) {
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
                         loop: 0,
-			            alphaQuality: 80, //quality of alpha layer, integer 0-100.
+		        alphaQuality: 80, //quality of alpha layer, integer 0-100.
                         smartSubsample: true, //use high quality chroma subsampling.
                         progressive: true,
                         optimizeScans: true
