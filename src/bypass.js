@@ -29,7 +29,7 @@ function forwardWithoutProcessing(req, res, buffer) {
   const urlPath = new URL(req.params.url).pathname;
   const filename = decodeURIComponent(urlPath.split('/').pop());
   if (filename) {
-    res.setHeader('Content-Disposition', inline; filename="${filename}");
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
   }
 
   // For large files, consider using streams to pipe the content and reduce memory overhead
@@ -38,7 +38,7 @@ function forwardWithoutProcessing(req, res, buffer) {
   bufferStream.pipe(res);
 
   // You may want to log this action for monitoring purposes
-  console.log(Forwarded without processing: ${req.params.url});
+  console.log(`Forwarded without processing: ${req.params.url}`);
 }
 
 module.exports = forwardWithoutProcessing;
