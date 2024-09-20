@@ -93,7 +93,7 @@ async function proxy(req, res) {
                     origin.data = await zstdDecompress(origin.data);
                     break;
                 default:
-                    console.warn(Unknown content-encoding: ${contentEncoding});
+                    console.warn(`Unknown content-encoding: ${contentEncoding}`);
             }
         }
 
