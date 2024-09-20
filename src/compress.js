@@ -22,7 +22,7 @@ async function compress(req, res, input) {
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
                         loop: 0,
-		        alphaQuality: 80, //quality of alpha layer, integer 0-100.
+			alphaQuality: 80, //quality of alpha layer, integer 0-100.
                         smartSubsample: true, //use high quality chroma subsampling.
                         progressive: true,
                         optimizeScans: true
@@ -55,44 +55,43 @@ async function compress(req, res, input) {
         });
 }
 
-// Adjust compression quality based on image properties
+//t
 function calculateQualityFactor(pixelCount, size) {
-    const thresholds = [
-        { pixels: 3000000, size: 1536000, factor: 0.1 },
-        { pixels: 2000000, size: 1024000, factor: 0.25 },
-        { pixels: 1000000, size: 512000, factor: 0.5 },
-        { pixels: 500000, size: 256000, factor: 0.75 },
-    ];
+  // These thresholds can be adjusted or even made configurable.
+  const thresholds = [
+    { pixels: 3000000, size: 1536000, factor: 0.1 },
+    { pixels: 2000000, size: 1024000, factor: 0.25 },
+    { pixels: 1000000, size: 512000, factor: 0.5 },
+    { pixels: 500000, size: 256000, factor: 0.75 },
+  ];
 
-    for (let threshold of thresholds) {
-        if (pixelCount > threshold.pixels && size > threshold.size) {
-            return threshold.factor;
-        }
+  for (let threshold of thresholds) {
+    if (pixelCount > threshold.pixels && size > threshold.size) {
+      return threshold.factor;
     }
-    return 1; // Default factor
+  }
+  return 1; // default factor
 }
 
 function adjustCompressionQuality(pixelCount, size, quality) {
-    const factor = calculateQualityFactor(pixelCount, size);
-    return Math.ceil(quality * factor);
+  const factor = calculateQualityFactor(pixelCount, size);
+  return Math.ceil(quality * factor);
 }
 
-// Send the compressed image as a response
+
 function sendImage(res, data, imgFormat, url, originSize) {
-    res.setHeader('content-type', `image/${imgFormat}`);
+    res.setHeader('content-type', image/${imgFormat});
     res.setHeader('content-length', data.length);
-
-    const filename = encodeURIComponent(new URL(url).pathname.split('/').pop() || "image") + `.${imgFormat}`;
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    let filename = encodeURIComponent(new URL(url).pathname.split('/').pop() || "image") + '.' + imgFormat;
+    res.setHeader('Content-Disposition', inline; filename="${filename}");
     res.setHeader('X-Content-Type-Options', 'nosniff');
-
-    const safeOriginSize = Math.max(originSize, 0);
-    const bytesSaved = Math.max(safeOriginSize - data.length, 0);
-
+    // Ensure x-original-size is a positive integer
+    let safeOriginSize = Math.max(originSize, 0);
     res.setHeader('x-original-size', safeOriginSize);
+    // Calculate bytes saved and ensure it's not negative
+    let bytesSaved = Math.max(safeOriginSize - data.length, 0);
     res.setHeader('x-bytes-saved', bytesSaved);
-
-    res.status(200).end(data);
+    res.status(200);
+    res.end(data);
 }
-
 module.exports = compress;
