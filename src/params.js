@@ -2,50 +2,38 @@ const DEFAULT_QUALITY = 40;
 const MAX_QUALITY = 100;
 const MIN_QUALITY = 10;
 
+// Importing a module for more robust URL validation (consider using a library like 'validator' for comprehensive checks).
 const validator = require('validator');
 
 function params(req, res, next) {
-    let url = req.query.url;
+  let url = req.query.url;
+  
+  // If multiple URLs are passed, join them together. This behavior might be revisited based on the expected usage.
+  if (Array.isArray(url)) url = url.join('&url=');
+  if (!url) return res.end('bandwidth-hero-proxy');
+  
+  // Corrects some specific URL formatting issues.
+  url = url.replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://');
 
-    // Join multiple URLs with '&url=' if passed as an array. Adjust this logic if you expect different behavior.
-    if (Array.isArray(url)) {
-        url = url.join('&url=');
-    }
+  // Enhanced URL validation using 'validator'
+  // Validate the URL. This helps ensure the proxy is not being misused to request invalid URLs.
+  if (!validator.isURL(url, { require_protocol: true })) {
+    return res.status(400).send('Invalid URL');
+  }
 
-    // Return a simple message if no URL is provided.
-    if (!url) {
-        return res.status(400).send('Missing URL parameter');
-    }
+  req.params.url = url;
+  
+  // Determines the desired output format. Defaults to webp.
+  req.params.webp = !req.query.jpeg;
+  
+  // Checks if the image should be grayscale.
+  req.params.grayscale = req.query.bw != 0;
 
-    // Corrects some specific URL formatting issues.
-    url = url.replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://');
+  // Parse and set the compression quality, ensuring it's within acceptable limits.
+  let quality = parseInt(req.query.l, 10);
+  req.params.quality = Math.min(Math.max(quality || DEFAULT_QUALITY, MIN_QUALITY), MAX_QUALITY);
 
-    // Enhanced URL validation using 'validator' and normalization.
-    if (!validator.isURL(url, { require_protocol: true, allow_underscores: true })) {
-        return res.status(400).send('Invalid URL format');
-    }
-
-    // Normalize URL to ensure a consistent format
-    url = validator.normalizeURL(url);
-
-    // Assign the validated and normalized URL to req.params
-    req.params.url = url;
-
-    // Determine the desired output format. Defaults to 'webp' unless 'jpeg' is specified.
-    req.params.webp = !req.query.jpeg;
-
-    // Checks if the image should be grayscale (if bw is not explicitly 0).
-    req.params.grayscale = req.query.bw !== '0';
-
-    // Parse and set the compression quality, ensuring it's within acceptable limits.
-    const quality = parseInt(req.query.l, 10);
-    req.params.quality = Number.isNaN(quality) ? DEFAULT_QUALITY : Math.min(Math.max(quality, MIN_QUALITY), MAX_QUALITY);
-
-    // Optionally log the parsed parameters for debugging/monitoring purposes.
-    console.log(`URL: ${req.params.url}, WebP: ${req.params.webp}, Grayscale: ${req.params.grayscale}, Quality: ${req.params.quality}`);
-
-    // Proceed to the next middleware or route handler.
-    next();
+  next();
 }
 
 module.exports = params;
