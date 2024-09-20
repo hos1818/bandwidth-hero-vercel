@@ -20,7 +20,7 @@ function isValidUrl(urlString) {
         // Check if the URL uses an acceptable protocol.
         const allowedProtocols = ['http:', 'https:']; // Add other allowed schemes as needed
         if (!allowedProtocols.includes(parsedUrl.protocol)) {
-            console.error(Invalid URL protocol: ${parsedUrl.protocol});
+            console.error(`Invalid URL protocol: ${parsedUrl.protocol}`);
             return false;
         }
 
@@ -30,7 +30,7 @@ function isValidUrl(urlString) {
         return true; // The URL is valid
     } catch (error) {
         // Catch and log the error if URL parsing fails
-        console.error(Invalid URL: ${urlString}. Error: ${error.message});
+        console.error(`Invalid URL: ${urlString}. Error: ${error.message}`);
         return false;
     }
 }
@@ -49,7 +49,7 @@ function redirect(req, res, statusCode = 302) {
 
     // Validate URL to protect against open redirect vulnerabilities
     if (!isValidUrl(req.params.url)) {
-        console.error(Attempted redirect to unauthorized URL: ${req.params.url});
+        console.error(`Attempted redirect to unauthorized URL: ${req.params.url}`);
         res.status(400).send('Invalid URL.');
         return;
     }
@@ -68,14 +68,14 @@ function redirect(req, res, statusCode = 302) {
     res.setHeader('location', encodeURI(req.params.url));
 
     // Log the redirect for monitoring purposes
-    console.log(Redirecting client to ${req.params.url} with status code ${statusCode}.);
+    console.log(`Redirecting client to ${req.params.url} with status code ${statusCode}.`);
 
     if (statusCode === 302) {
             // Adding HTML body as an extra measure for clients that don't follow redirects
-            res.status(statusCode).send(<html>
+            res.status(statusCode).send(`<html>
     <head><meta http-equiv="refresh" content="0;url=${encodeURI(req.params.url)}"></head>
     <body></body>
-    </html>);
+    </html>`);
         } else {
             res.status(statusCode).end();
         }
