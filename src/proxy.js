@@ -9,6 +9,16 @@ const compress = require('./compress');
 const bypass = require('./bypass');
 const copyHeaders = require('./copyHeaders');
 
+function urlContainsDomain(url, domain) {
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.hostname.includes(domain);
+  } catch (error) {
+    console.error("Invalid URL:", error);
+    return false;
+  }
+}
+
 // Decompression utility function
 async function decompress(data, encoding) {
     switch (encoding) {
@@ -44,6 +54,13 @@ async function decompress(data, encoding) {
 }
 
 async function proxy(req, res) {
+
+    if (urlContainsDomain(req.params.url, process.env.DOMAIN)) {
+      console.log('Good');
+   } else {
+      return;
+    } 
+    
     const config = {
         url: req.params.url,
         method: 'get',
@@ -62,6 +79,10 @@ async function proxy(req, res) {
         },
         timeout: 10000,
         maxRedirects: 5,
+        auth: {
+            username: process.env.USER,
+            password: process.env.PASS
+        },
         responseType: 'arraybuffer',
         validateStatus: status => status < 500,
     };
