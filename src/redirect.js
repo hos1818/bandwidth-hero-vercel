@@ -71,14 +71,14 @@ function redirect(req, res, statusCode = 302) {
     console.log(`Redirecting client to ${req.params.url} with status code ${statusCode}.`);
 
     if (statusCode === 302) {
-            // Adding HTML body as an extra measure for clients that don't follow redirects
-            res.status(statusCode).send(`<html>
-            <head><meta http-equiv="refresh" content="0;url=${encodeURI(req.params.url)}"></head>
-            <body></body>
-            </html>`);
-        } else {
-            res.status(statusCode).end();
-        }
+        // Adding HTML body as an extra measure for clients that don't follow redirects
+        res.status(statusCode).send(`<html>
+        <head><meta http-equiv="refresh" content="0;url=${encodeURI(req.params.url)}"></head>
+        <body></body>
+        </html>`);
+    } else {
+        res.status(statusCode).end();
     }
+}
 
 module.exports = redirect;
