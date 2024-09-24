@@ -73,9 +73,9 @@ function redirect(req, res, statusCode = 302) {
     if (statusCode === 302) {
             // Adding HTML body as an extra measure for clients that don't follow redirects
             res.status(statusCode).send(`<html>
-    <head><meta http-equiv="refresh" content="0;url=${encodeURI(req.params.url)}"></head>
-    <body></body>
-    </html>`);
+            <head><meta http-equiv="refresh" content="0;url=${encodeURI(req.params.url)}"></head>
+            <body></body>
+            </html>`);
         } else {
             res.status(statusCode).end();
         }
