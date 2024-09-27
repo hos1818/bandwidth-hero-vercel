@@ -19,6 +19,18 @@ async function compress(req, res, input) {
             if (format === 'avif' && isAnimated(input)) {
                 sharp(input, { animated: true })
                     .grayscale(req.params.grayscale)
+                    // Sharpen the image to enhance details
+                    .sharpen(1, 1, 0.5) // (sigma, flat, jagged) for moderate sharpening without overdoing it
+                    // Apply gamma correction for better brightness and contrast
+                    .gamma(2.2) // Adjust gamma (typical gamma is around 2.2)
+                    // Modulate brightness, saturation, and hue to enhance colors
+                    .modulate({
+                        brightness: 1.1, // Slightly brighten the image (1 = no change)
+                        saturation: 1.2, // Enhance colors (1 = no change)
+                        hue: 0 // No hue shift
+                    })
+                    // Optionally, apply a slight blur to smooth out noise (use median for denoising)
+                    .blur(0.3) // Small blur radius to reduce minor noise (adjust based on image quality)
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
                         chromaSubsampling: '4:2:0',
@@ -34,6 +46,18 @@ async function compress(req, res, input) {
             } else {
                 sharp(input)
                     .grayscale(req.params.grayscale)
+                    // Sharpen the image to enhance details
+                    .sharpen(1, 1, 0.5) // (sigma, flat, jagged) for moderate sharpening without overdoing it
+                    // Apply gamma correction for better brightness and contrast
+                    .gamma(2.2) // Adjust gamma (typical gamma is around 2.2)
+                    // Modulate brightness, saturation, and hue to enhance colors
+                    .modulate({
+                        brightness: 1.1, // Slightly brighten the image (1 = no change)
+                        saturation: 1.2, // Enhance colors (1 = no change)
+                        hue: 0 // No hue shift
+                    })
+                    // Optionally, apply a slight blur to smooth out noise (use median for denoising)
+                    .blur(0.3) // Small blur radius to reduce minor noise (adjust based on image quality)
                     .toFormat(format, {
                         chromaSubsampling: '4:2:0',
                         quality: compressionQuality //output image quality.
