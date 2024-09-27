@@ -30,7 +30,7 @@ async function compress(req, res, input) {
                         hue: 0 // No hue shift
                     })
                     // Optionally, apply a slight blur to smooth out noise (use median for denoising)
-                    .blur(0.3) // Small blur radius to reduce minor noise (adjust based on image quality)
+                    .median(3) // aggressive noise reduction, good for low-quality images
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
                         chromaSubsampling: '4:2:0',
@@ -58,7 +58,7 @@ async function compress(req, res, input) {
                         hue: 0 // No hue shift
                     })
                     // Optionally, apply a slight blur to smooth out noise (use median for denoising)
-                    .blur(0.3) // Small blur radius to reduce minor noise (adjust based on image quality)
+                    .median(3) // aggressive noise reduction, good for low-quality images
                     .toFormat(format, {
                         chromaSubsampling: '4:2:0',
                         quality: compressionQuality //output image quality.
