@@ -22,11 +22,7 @@ async function compress(req, res, input) {
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
                         loop: 0,
-			effort: 3,
-			alphaQuality: 80, //quality of alpha layer, integer 0-100.
-                        smartSubsample: true, //use high quality chroma subsampling.
-                        progressive: true,
-                        optimizeScans: true
+			effort: 3
                     })
                     .toBuffer((err, output, info) => {
                         if (err || !info || res.headersSent) {
@@ -40,11 +36,7 @@ async function compress(req, res, input) {
                     .grayscale(req.params.grayscale)
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
-			effort: 3,
-                        alphaQuality: 80, //quality of alpha layer, integer 0-100.
-                        smartSubsample: true, //use high quality chroma subsampling.
-                        progressive: true,
-                        optimizeScans: true
+			effort: 3
                     })
                     .toBuffer((err, output, info) => {
                         if (err || !info || res.headersSent) {
