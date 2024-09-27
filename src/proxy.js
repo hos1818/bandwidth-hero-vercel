@@ -1,4 +1,4 @@
-const axios = require('axios');
+const got = require('got');
 const pick = require('lodash').pick;
 const zlib = require('node:zlib');
 const lzma = require('lzma-native');
@@ -44,37 +44,37 @@ async function decompress(data, encoding) {
 }
 
 async function proxy(req, res) {
-    const config = {
-        url: req.params.url,
-        method: 'get',
-        headers: {
-            ...pick(req.headers, ['cookie', 'dnt', 'referer']),
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; rv:121.0) Gecko/20100101 Firefox/121.0',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Connection': 'keep-alive',
-            'Accept-Encoding': 'gzip, deflate, br, lzma, lzma2, zstd',
-            'Upgrade-Insecure-Requests': '1',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'DNT': '1',
-            'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
-            via: '2.0 bandwidth-hero',
-        },
-        timeout: 10000,
-        maxRedirects: 5,
-        responseType: 'arraybuffer',
-        validateStatus: status => status < 500,
+    const headers = {
+        ...pick(req.headers, ['cookie', 'dnt', 'referer']),
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; rv:121.0) Gecko/20100101 Firefox/121.0',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Connection': 'keep-alive',
+        'Accept-Encoding': 'gzip, deflate, br, lzma, lzma2, zstd',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'DNT': '1',
+        'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
+        via: '2.0 bandwidth-hero',
     };
 
     try {
-        const origin = await axios(config);
+        const origin = await got(req.params.url, {
+            method: 'GET',
+            headers,
+            timeout: { request: 10000 },
+            followRedirect: true,
+            maxRedirects: 5,
+            responseType: 'buffer', // Ensures the response body is a buffer
+            throwHttpErrors: false, // Similar to validateStatus in axios
+        });
 
         // Copy relevant headers from origin to response
         copyHeaders(origin, res);
 
         // Decompress data based on content-encoding, if necessary
         const contentEncoding = origin.headers['content-encoding'];
-        let data = origin.data;
+        let data = origin.body;
         if (contentEncoding) {
             data = await decompress(data, contentEncoding);
         }
@@ -92,7 +92,7 @@ async function proxy(req, res) {
         }
     } catch (error) {
         if (error.response) {
-            console.error('Server responded with status:', error.response.status);
+            console.error('Server responded with status:', error.response.statusCode);
         } else if (error.request) {
             console.error('No response received:', error.request);
         } else {
