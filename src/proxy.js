@@ -8,6 +8,7 @@ const redirect = require('./redirect');
 const compress = require('./compress');
 const bypass = require('./bypass');
 const copyHeaders = require('./copyHeaders');
+const http2 = require('node:http2');
 
 // Decompression utility function
 async function decompress(data, encoding) {
@@ -19,7 +20,7 @@ async function decompress(data, encoding) {
         case 'deflate':
             return zlib.promises.inflate(data);
         case 'lzma':
-        case 'lzma2': // LZMA and LZMA2 are handled the same way
+        case 'lzma2':
             return new Promise((resolve, reject) => {
                 lzma.decompress(data, (result, error) => {
                     if (error) return reject(error);
@@ -43,9 +44,47 @@ async function decompress(data, encoding) {
     }
 }
 
+async function makeHttp2Request(config) {
+    return new Promise((resolve, reject) => {
+        const client = http2.connect(config.url);
+
+        const headers = {
+            ':method': 'GET',
+            ':path': config.url.pathname,
+            ...pick(config.headers, ['cookie', 'dnt', 'referer']),
+            'user-agent': config.headers['user-agent'],
+        };
+
+        const req = client.request(headers);
+
+        let data = [];
+
+        req.on('response', (headers, flags) => {
+            // Collect response headers
+            resolve({ headers, flags });
+        });
+
+        req.on('data', chunk => {
+            data.push(chunk);
+        });
+
+        req.on('end', () => {
+            client.close();
+            resolve(Buffer.concat(data));
+        });
+
+        req.on('error', err => {
+            client.close();
+            reject(err);
+        });
+
+        req.end();
+    });
+}
+
 async function proxy(req, res) {
     const config = {
-        url: req.params.url,
+        url: new URL(req.params.url),
         method: 'get',
         headers: {
             ...pick(req.headers, ['cookie', 'dnt', 'referer']),
@@ -67,7 +106,19 @@ async function proxy(req, res) {
     };
 
     try {
-        const origin = await axios(config);
+        let origin;
+
+        if (config.url.protocol === 'http2:') {
+            // Handle HTTP/2 request using the node:http2 module
+            const response = await makeHttp2Request(config);
+            origin = {
+                headers: response.headers,
+                data: response.data,
+            };
+        } else {
+            // Fallback to axios for non-HTTP/2 requests
+            origin = await axios(config);
+        }
 
         // Copy relevant headers from origin to response
         copyHeaders(origin, res);
