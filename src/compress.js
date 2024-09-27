@@ -36,12 +36,13 @@ async function compress(req, res, input) {
                         chromaSubsampling: '4:2:0',
                         loop: 0
                     })
-                    .toBuffer((err, output, info) => {
-                        if (err || !info || res.headersSent) {
-                            console.error("Error in image compression:", err);
-                            return redirect(req, res);
-                        }
+                    .toBuffer()
+                    .then(output => {
                         sendImage(res, output, format, req.params.url, req.params.originSize);
+                    })
+                    .catch(err => {
+                        console.error("Error in image compression:", err);
+                        redirect(req, res);
                     });
             } else {
                 sharp(input)
@@ -62,12 +63,13 @@ async function compress(req, res, input) {
                         chromaSubsampling: '4:2:0',
                         quality: compressionQuality //output image quality.
                     })
-                    .toBuffer((err, output, info) => {
-                        if (err || !info || res.headersSent) {
-                            console.error("Error in image compression:", err);
-                            return redirect(req, res);
-                        }
+                    .toBuffer()
+                    .then(output => {
                         sendImage(res, output, format, req.params.url, req.params.originSize);
+                    })
+                    .catch(err => {
+                        console.error("Error in image compression:", err);
+                        redirect(req, res);
                     });
             }
         });
