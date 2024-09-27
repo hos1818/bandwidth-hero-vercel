@@ -15,6 +15,7 @@
   "dependencies": {
     "basic-auth": "^2.0.1",
     "express": "^4.21.0",
+    "got": "^14.4.2",
     "axios": "^1.7.7",
     "is-animated": "^2.0.2",
     "lodash": "^4.17.21",
