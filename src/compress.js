@@ -21,6 +21,7 @@ async function compress(req, res, input) {
                     .grayscale(req.params.grayscale)
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
+                        chromaSubsampling: '4:2:0',
                         loop: 0
                     })
                     .toBuffer((err, output, info) => {
@@ -34,6 +35,7 @@ async function compress(req, res, input) {
                 sharp(input)
                     .grayscale(req.params.grayscale)
                     .toFormat(format, {
+                        chromaSubsampling: '4:2:0',
                         quality: compressionQuality //output image quality.
                     })
                     .toBuffer((err, output, info) => {
