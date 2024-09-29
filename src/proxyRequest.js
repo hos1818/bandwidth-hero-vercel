@@ -14,21 +14,37 @@ async function bypassCloudflareWithPuppeteer(url) {
   const page = await browser.newPage();
 
   // Set a random user agent
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+  await page.setUserAgent('Mozilla/5.0 (Windows NT 5.1; rv:5.0) Gecko/20100101 Firefox/5.0');
 
+  // Enable/disable JavaScript based on the website's requirements
+  await page.setJavaScriptEnabled(true);
+  
   // Retry logic
-  for (let attempts = 0; attempts < 5; attempts++) {
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
+      // Set a timeout for the page loading
       await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-      await page.waitForSelector('body', { timeout: 30000 });
+      await page.waitForSelector('body', { timeout: 30000 }); // Wait for the body element
 
+      // Get the page content
       const content = await page.content();
       await browser.close();
       
       return content;
-    } catch (err) {
-      console.warn(`Attempt ${attempts + 1} failed:`, err);
-      await new Promise(resolve => setTimeout(resolve, Math.random() * 2000 + 1000)); // Random delay
+    } catch (error) {
+      console.warn(`Attempt ${attempt} failed:`, error.message);
+
+      // Specific error handling
+      if (error.message.includes('Timeout')) {
+        console.error('Timeout error, retrying...');
+      } else if (error.message.includes('net::ERR_PROXY_CONNECTION_FAILED')) {
+        console.error('Proxy connection failed, using a different proxy might help.');
+      }
+
+      // Wait before retrying
+      const delay = Math.random() * 2000 + 1000; // Random delay between 1-3 seconds
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 
