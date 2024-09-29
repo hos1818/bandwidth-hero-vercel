@@ -20,6 +20,23 @@ async function bypassCloudflareWithPuppeteer(url) {
   });
   const page = await browser.newPage();
 
+  // Set viewport for a realistic browser window
+  await page.setViewport({
+    width: 1280,
+    height: 720,
+    deviceScaleFactor: 1,
+    isMobile: false,
+    hasTouch: false,
+    isLandscape: true,
+  });
+
+  // Randomize User-Agent
+  const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    // Add more user agents here
+  ];
+  await page.setUserAgent(userAgents[Math.floor(Math.random() * userAgents.length)]);
+
   // Enable/disable JavaScript based on the website's requirements
   await page.setJavaScriptEnabled(false);
   
