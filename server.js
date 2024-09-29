@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 443
 app.use(morgan('combined'))
 
 app.enable('trust proxy')
-app.get('/', authenticate, params, proxy, proxyRequest)
+app.get('/', authenticate, params, proxy)
 app.get('/favicon.ico', (req, res) => res.status(204).end())
 app.listen(PORT, () => {
     console.log(`Listening on ${PORT}`)
