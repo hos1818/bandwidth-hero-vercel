@@ -19,7 +19,9 @@ async function proxyRequest(req, res) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         ...req.headers, // Pass through any additional headers
       },
-      data: req.body || null, // Pass body if applicable (for POST requests)
+      // Use `data` for POST requests or `params` for GET requests
+      data: req.method === 'POST' ? req.body : null, // Pass body if applicable (for POST requests)
+      params: req.method === 'GET' ? req.query : null, // Pass query parameters if applicable (for GET requests)
     };
 
     // Fetch content from the Cloudflare Worker
