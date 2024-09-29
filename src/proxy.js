@@ -9,6 +9,7 @@ const compress = require('./compress');
 const bypass = require('./bypass');
 const copyHeaders = require('./copyHeaders');
 const http2 = require('node:http2');
+const proxyRequest = require('./proxyRequest'); // Make sure this imports your Puppeteer logic
 
 // Decompression utility function
 async function decompress(data, encoding) {
@@ -89,10 +90,18 @@ async function proxy(req, res) {
     try {
         let originResponse;
 
+        // First attempt regular request
         if (config.url.protocol === 'http2:') {
             originResponse = await makeHttp2Request(config);
         } else {
             originResponse = await axios(config);
+        }
+
+        // Check for Cloudflare status codes
+        if (originResponse.status === 403 || originResponse.status === 503) {
+            // Use Puppeteer to bypass Cloudflare challenge
+            const response = await proxyRequest(req, res);
+            return res.status(200).send(response);
         }
 
         const { headers, data } = originResponse;
