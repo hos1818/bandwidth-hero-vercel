@@ -1,60 +1,61 @@
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const { firefox } = require('playwright'); // Use 'chromium', 'firefox', or 'webkit'
 
-// Use stealth plugin for Puppeteer to bypass detection
-puppeteer.use(StealthPlugin());
-const stealth = StealthPlugin();
-stealth.enabledEvasions.delete("user-agent-override"); // Optional: preserve default user-agent
-
-async function bypassCloudflareWithPuppeteer(url) {
-  const browser = await puppeteer.launch({
-    headless: true, // Run in headless mode for production
+async function bypassCloudflareWithPlaywright(url) {
+  const browser = await firefox.launch({
+    headless: true, // Run headless for production
     args: [
-      '--no-sandbox', 
+      '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-web-security',
       '--disable-features=IsolateOrigins,site-per-process',
       '--disable-dev-shm-usage',
-      '--incognito', // Start in incognito mode
-      '--window-size=1280,720', // Set window size to avoid headless detection
+      '--incognito', // Use incognito mode for each request
     ],
   });
 
-  const page = await browser.newPage();
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 720 },
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36', // Realistic User-Agent
+    locale: 'en-US', // Language settings
+    geolocation: { longitude: 12.4924, latitude: 41.8902 }, // Fake geolocation (optional)
+    permissions: ['geolocation'], // Allow geolocation (optional)
+  });
 
-  // Setting user agent
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+  const page = await context.newPage();
 
-  // Setting realistic headers
+  // Set additional headers
   await page.setExtraHTTPHeaders({
     'Accept-Language': 'en-US,en;q=0.9',
   });
 
-  // Handle Cloudflare challenge by waiting for specific elements or time
-  try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  // Custom retry logic to handle Cloudflare or connection issues
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      // Navigate to the URL
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-    // Handle CAPTCHA if required (Optional: Integrate CAPTCHA solver API)
-    const captchaDetected = await page.$('.g-recaptcha');
-    if (captchaDetected) {
-      throw new Error("CAPTCHA detected! Requires manual or automated solving.");
+      // Check for CAPTCHA or Cloudflare block
+      const captchaDetected = await page.$('.g-recaptcha');
+      if (captchaDetected) {
+        throw new Error("CAPTCHA detected! Requires manual or automated solving.");
+      }
+
+      // Ensure the page loaded successfully
+      await page.waitForSelector('body', { timeout: 30000 });
+
+      // Capture and return the page content
+      const content = await page.content();
+      await browser.close();
+      return content;
+
+    } catch (error) {
+      console.warn(`Attempt ${attempt} failed:`, error.message);
+      if (attempt === maxAttempts) {
+        await browser.close();
+        throw new Error(`Failed to load ${url} after ${maxAttempts} attempts.`);
+      }
     }
-
-    // Wait for the body or specific content to indicate Cloudflare has passed
-    await page.waitForSelector('body', { timeout: 30000 });
-
-    // Take a screenshot if needed (e.g., for debugging)
-    // await page.screenshot({ path: 'cloudflare_bypass.png' });
-
-    // Return the page content
-    const content = await page.content();
-    await browser.close();
-    return content;
-
-  } catch (error) {
-    console.error('Error in bypassing Cloudflare:', error);
-    await browser.close();
-    throw error; // Re-throw to handle the error in the calling function
   }
 }
 
@@ -64,7 +65,7 @@ async function proxyRequest(req, res) {
 
   try {
     // Bypass Cloudflare protection and retrieve page content
-    const content = await bypassCloudflareWithPuppeteer(url);
+    const content = await bypassCloudflareWithPlaywright(url);
     res.status(200).send(content);
   } catch (err) {
     console.error(`Failed to bypass Cloudflare for ${url}:`, err);
