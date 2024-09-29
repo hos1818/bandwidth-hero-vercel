@@ -9,7 +9,7 @@ const compress = require('./compress');
 const bypass = require('./bypass');
 const copyHeaders = require('./copyHeaders');
 const http2 = require('node:http2');
-const proxyRequest = require('./proxyRequest'); // Make sure this imports your Puppeteer logic
+//const proxyRequest = require('./proxyRequest');
 
 // Decompression utility function
 async function decompress(data, encoding) {
@@ -72,16 +72,21 @@ async function proxy(req, res) {
         url: new URL(req.params.url),
         method: 'get',
         headers: {
-            ...pick(req.headers, ['cookie', 'dnt', 'referer']),
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; rv:121.0) Gecko/20100101 Firefox/121.0',
+            ...pick(req.headers, ['cookie', 'referer']),
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/*,*/*;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br, lzma, lzma2, zstd',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Cache-Control': 'no-cache',
             'DNT': '1',
             'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
+            'Connection': 'keep-alive',  // Often required for persistent connections
+            'Pragma': 'no-cache',          // An additional header that can help in some cases
+            'Sec-Fetch-Mode': 'navigate',  // Useful for navigation requests
+            'Sec-Fetch-Site': 'same-origin',// Indicate the request's context
+            'Sec-Fetch-User': '?1',        // To indicate that this is a user-initiated request
             via: '2.0 bandwidth-hero',
         },
-        timeout: 10000,
+        timeout: 5000,
         maxRedirects: 5,
         responseType: 'arraybuffer',
         validateStatus: status => status < 500,
@@ -98,11 +103,11 @@ async function proxy(req, res) {
         }
 
         // Check for Cloudflare status codes
-        if (originResponse.status === 403 || originResponse.status === 503) {
+        /* if (originResponse.status === 403 || originResponse.status === 503) {
             // Use Puppeteer to bypass Cloudflare challenge
             const response = await proxyRequest(req, res);
             return res.status(200).send(response);
-        }
+        } */
 
         const { headers, data } = originResponse;
         const contentEncoding = headers['content-encoding'];
