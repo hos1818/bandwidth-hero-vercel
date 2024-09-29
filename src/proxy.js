@@ -9,6 +9,7 @@ const compress = require('./compress');
 const bypass = require('./bypass');
 const copyHeaders = require('./copyHeaders');
 const http2 = require('node:http2');
+const Bottleneck = require('bottleneck');
 //const proxyRequest = require('./proxyRequest');
 
 // Decompression utility function
@@ -66,6 +67,16 @@ async function makeHttp2Request(config) {
     });
 }
 
+// Create a limiter with a maximum of 1 request every 2 seconds
+const limiter = new Bottleneck({
+    minTime: 2000, // Minimum time between requests in milliseconds
+});
+
+async function makeRequest(config) {
+    return limiter.schedule(() => axios(config));
+}
+
+
 // Proxy function to handle requests
 async function proxy(req, res) {
     const config = {
@@ -99,7 +110,7 @@ async function proxy(req, res) {
         if (config.url.protocol === 'http2:') {
             originResponse = await makeHttp2Request(config);
         } else {
-            originResponse = await axios(config);
+            originResponse = await makeRequest(config); // Use the rate-limited request
         }
 
         // Check for Cloudflare status codes
