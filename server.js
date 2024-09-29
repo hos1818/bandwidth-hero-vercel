@@ -5,7 +5,6 @@ const morgan = require('morgan')
 const authenticate = require('./src/authenticate')
 const params = require('./src/params')
 const proxy = require('./src/proxy')
-const proxyRequest = require('./src/proxyRequest') // Use the new proxy request with Cloudflare bypass
 
 const app = express()
 const PORT = process.env.PORT || 443
