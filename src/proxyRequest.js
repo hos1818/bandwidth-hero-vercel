@@ -1,24 +1,21 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-const {executablePath} = require('puppeteer');
 
 // Use the stealth plugin
-puppeteerStealth.enabledEvasions.delete("user-agent-override");
 puppeteer.use(StealthPlugin());
+const stealth = StealthPlugin(); // Initialize stealth plugin for further manipulation if needed
+stealth.enabledEvasions.delete("user-agent-override");
 
-
-// Function to request a URL bypassing Cloudflare.
+// Function to request a URL bypassing Cloudflare
 async function bypassCloudflareWithPuppeteer(url) {
   const browser = await puppeteer.launch({
-    executablePath: executablePath(),
-    headless: false,
-    targetFilter: (target) => target.type() !== "other",
+    headless: false, // Change to true for production
     args: [
-        '--no-sandbox', 
-        '--disable-setuid-sandbox', 
-        '--disable-notifications', 
-        '--auto-open-devtools-for-tabs', 
-        '--disable-dev-shm-usage',
+      '--no-sandbox', 
+      '--disable-setuid-sandbox', 
+      '--disable-notifications', 
+      '--auto-open-devtools-for-tabs', 
+      '--disable-dev-shm-usage',
     ],
   });
   const page = await browser.newPage();
@@ -31,17 +28,14 @@ async function bypassCloudflareWithPuppeteer(url) {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       // Set a timeout for the page loading
-      await page.goto(url);
       await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
       await page.waitForSelector('body', { timeout: 30000 }); // Wait for the body element
 
       // Get the page content
       const content = await page.content();
-      await browser.close();
-      
-      return content;
+      return content; // Return content before closing the browser
     } catch (error) {
-      console.warn(`Attempt ${attempt} failed:`, error.message);
+      console.warn(`Attempt ${attempt} failed:`, error); // Log the full error object
 
       // Specific error handling
       if (error.message.includes('Timeout')) {
@@ -53,13 +47,13 @@ async function bypassCloudflareWithPuppeteer(url) {
       // Wait before retrying
       const delay = Math.random() * 2000 + 1000; // Random delay between 1-3 seconds
       await new Promise(resolve => setTimeout(resolve, delay));
+    } finally {
+      await browser.close(); // Ensure the browser closes regardless of the outcome
     }
   }
 
-  await browser.close();
   throw new Error(`Failed to load ${url} after multiple attempts.`);
 }
-
 
 // Example usage within your proxy logic
 async function proxyRequest(req, res) {
@@ -70,6 +64,7 @@ async function proxyRequest(req, res) {
     const response = await bypassCloudflareWithPuppeteer(url);
     res.status(200).send(response);
   } catch (err) {
+    console.error(`Failed to bypass Cloudflare for ${url}:`, err);
     res.status(500).send('Failed to bypass Cloudflare.');
   }
 }
