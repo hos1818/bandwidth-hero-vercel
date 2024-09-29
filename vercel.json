@@ -3,6 +3,9 @@
 "installCommand": "pnpm install",
 "builds": [
 { "src": "server.js", "use": "@vercel/node@latest" }
+  "env": {
+      "PLAYWRIGHT_BROWSERS_PATH": "0"
+    }
 ],
 "rewrites": [
 { "source": "/(.*)", "destination": "/server.js" }
