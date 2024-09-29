@@ -1,67 +1,80 @@
 const playwright = require('playwright-aws-lambda');
 
 async function bypassCloudflareWithPlaywright(url) {
-  const await playwright.launchChromium({
-    headless: true, // Run headless for production
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-web-security',
-      '--disable-features=IsolateOrigins,site-per-process',
-      '--disable-dev-shm-usage',
-      '--incognito', // Use incognito mode for each request
-    ],
-  });
+  let browser;
 
-  const context = await browser.newContext({
-    viewport: { width: 1280, height: 720 },
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36', // Realistic User-Agent
-    locale: 'en-US', // Language settings
-    geolocation: { longitude: 12.4924, latitude: 41.8902 }, // Fake geolocation (optional)
-    permissions: ['geolocation'], // Allow geolocation (optional)
-  });
+  try {
+    // Launch Chromium browser using playwright-aws-lambda
+    browser = await playwright.launchChromium({
+      headless: true, // Run headless for production
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process',
+        '--disable-dev-shm-usage',
+        '--incognito', // Use incognito mode for each request
+      ],
+    });
 
-  const page = await context.newPage();
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 720 },
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36', // Realistic User-Agent
+      locale: 'en-US', // Language settings
+    });
 
-  // Set additional headers
-  await page.setExtraHTTPHeaders({
-    'Accept-Language': 'en-US,en;q=0.9',
-  });
+    const page = await context.newPage();
 
-  // Custom retry logic to handle Cloudflare or connection issues
-  const maxAttempts = 5;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      // Navigate to the URL
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    // Set additional headers
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'en-US,en;q=0.9',
+    });
 
-      // Check for CAPTCHA or Cloudflare block
-      const captchaDetected = await page.$('.g-recaptcha');
-      if (captchaDetected) {
-        throw new Error("CAPTCHA detected! Requires manual or automated solving.");
-      }
+    // Custom retry logic to handle Cloudflare or connection issues
+    const maxAttempts = 5;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        // Navigate to the URL
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-      // Ensure the page loaded successfully
-      await page.waitForSelector('body', { timeout: 30000 });
+        // Check for CAPTCHA or Cloudflare block
+        const captchaDetected = await page.$('.g-recaptcha');
+        if (captchaDetected) {
+          throw new Error("CAPTCHA detected! Requires manual or automated solving.");
+        }
 
-      // Capture and return the page content
-      const content = await page.content();
-      await browser.close();
-      return content;
+        // Ensure the page loaded successfully
+        await page.waitForSelector('body', { timeout: 30000 });
 
-    } catch (error) {
-      console.warn(`Attempt ${attempt} failed:`, error.message);
-      if (attempt === maxAttempts) {
+        // Capture and return the page content
+        const content = await page.content();
         await browser.close();
-        throw new Error(`Failed to load ${url} after ${maxAttempts} attempts.`);
+        return content;
+
+      } catch (error) {
+        console.warn(`Attempt ${attempt} failed:`, error.message);
+        if (attempt === maxAttempts) {
+          throw new Error(`Failed to load ${url} after ${maxAttempts} attempts.`);
+        }
       }
+    }
+  } catch (error) {
+    console.error('Error during browser interaction:', error.message);
+    throw error;
+  } finally {
+    if (browser) {
+      await browser.close();
     }
   }
 }
 
 // Proxy request logic
 async function proxyRequest(req, res) {
-  const url = req.params.url;
+  const url = req.query.url;
+
+  if (!url) {
+    return res.status(400).send('No URL provided.');
+  }
 
   try {
     // Bypass Cloudflare protection and retrieve page content
