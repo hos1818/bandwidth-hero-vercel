@@ -10,7 +10,7 @@
   },
   "packageManager": "pnpm@9.3.0",
   "scripts": {
-    "postinstall": "npx playwright install --with-deps chromium",
+    "postinstall": "npx playwright install",
     "start": "node server.js"
   },
   "dependencies": {
