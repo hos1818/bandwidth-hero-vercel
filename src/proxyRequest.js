@@ -7,7 +7,7 @@ puppeteer.use(StealthPlugin());
 // Function to request a URL bypassing Cloudflare.
 async function bypassCloudflareWithPuppeteer(url) {
   const browser = await puppeteer.launch({
-    headless: false,
+    headless: true,
     targetFilter: (target) => !!target.url
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
