@@ -1,7 +1,7 @@
-const { firefox } = require('playwright'); // Use 'chromium', 'firefox', or 'webkit'
+const { chromium } = require('playwright'); // Use 'chromium', 'firefox', or 'webkit'
 
 async function bypassCloudflareWithPlaywright(url) {
-  const browser = await firefox.launch({
+  const browser = await chromium.launch({
     headless: true, // Run headless for production
     args: [
       '--no-sandbox',
