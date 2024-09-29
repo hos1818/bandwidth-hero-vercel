@@ -10,7 +10,7 @@ async function proxyRequest(req, res) {
 
   try {
     // Construct the Cloudflare Worker URL
-    const workerUrl = `https://workerforcf.hoss78307926.workers.dev?url=${encodeURIComponent(url)}`;
+    const workerUrl = `https://workerforcf.hoss78307926.workers.dev/?url=${encodeURIComponent(url)}`;
 
     // Define request options
     const options = {
