@@ -9,7 +9,7 @@ stealth.enabledEvasions.delete("user-agent-override");
 // Function to request a URL bypassing Cloudflare
 async function bypassCloudflareWithPuppeteer(url) {
   const browser = await puppeteer.launch({
-    headless: new, // Change to true for production
+    headless: true, // Change to true for production
     args: [
       '--no-sandbox', 
       '--disable-setuid-sandbox', 
