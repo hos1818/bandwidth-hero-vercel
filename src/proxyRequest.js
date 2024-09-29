@@ -26,7 +26,7 @@ async function proxyRequest(req, res) {
 
         // Send the response back to the client
         res.set(response.headers);
-        res.set('X-Proxy', 'Node.js Axios');
+        res.set('X-Proxy', 'Cloudflare Worker');
         res.set('Access-Control-Allow-Origin', '*'); // Allow CORS if needed
         console.log(`Fetched ${targetUrl} with status: ${response.status}`);
         return res.status(response.status).send(response.data);
