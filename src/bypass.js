@@ -1,43 +1,46 @@
 const { URL } = require('url');
-const stream = require('node:stream'); 
+const stream = require('node:stream');
 
 function forwardWithoutProcessing(req, res, buffer) {
-  // Validate inputs
+  // Validate the request and response objects.
   if (!req || !res) {
     throw new Error("Request or Response objects are missing or invalid");
   }
 
-  if (!buffer || !Buffer.isBuffer(buffer)) {
-    console.error("Invalid or missing buffer"); // Consider more sophisticated logging if necessary.
+  // Check that the buffer exists and is valid.
+  if (!Buffer.isBuffer(buffer)) {
+    console.error("Invalid or missing buffer");
     return res.status(500).send("Invalid or missing buffer");
   }
 
-  // Set headers to maintain the original content and enhance security
+  // Set headers to preserve content type and enhance security.
   if (req.params.originType) {
-    res.setHeader('Content-Type', req.params.originType);
+    res.setHeader('Content-Type', req.params.originType); // Ensure correct content type
   }
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY'); // This may need to be adjusted based on your application's needs.
+  res.setHeader('X-Content-Type-Options', 'nosniff');    // Prevent MIME-type sniffing.
+  res.setHeader('X-Frame-Options', 'DENY');              // Block content from being embedded in iframes.
 
-  // Flag indicating the content is being forwarded without processing
+  // Indicate that content is being forwarded without processing.
   res.setHeader('x-proxy-bypass', 1);
 
-  // Set content length for proper content handling
+  // Set the content length for proper response size handling.
   res.setHeader('content-length', buffer.length);
 
-  // Extract and decode the filename, and set it in the content disposition header
+  // Extract and set the filename from the URL's path for Content-Disposition.
   const urlPath = new URL(req.params.url).pathname;
-  const filename = decodeURIComponent(urlPath.split('/').pop());
+  const filename = decodeURIComponent(urlPath.split('/').pop()); // Safely decode the filename.
+  
+  // Only set Content-Disposition header if a filename is available.
   if (filename) {
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
   }
 
-  // For large files, consider using streams to pipe the content and reduce memory overhead
+  // Stream the buffer to the response to avoid high memory usage for large files.
   const bufferStream = new stream.PassThrough();
   bufferStream.end(buffer);
-  bufferStream.pipe(res);
+  bufferStream.pipe(res); // Pipes the buffer stream to the response for efficient data handling.
 
-  // You may want to log this action for monitoring purposes
+  // Optionally log the forward action for monitoring purposes.
   console.log(`Forwarded without processing: ${req.params.url}`);
 }
 
