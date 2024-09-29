@@ -24,9 +24,7 @@
     "lzma-native": "^8.0.6",
     "zstd-codec": "^0.1.5",
     "validator": "^13.12.0",
-    "playwright": "^1.47.2",
-    "playwright-core": "^1.47.2",
-    "playwright-aws-lambda": "^0.11.0",
+    "bottleneck": "^2.19.5",
     "morgan": "^1.10.0"
   },
   "engines": {
