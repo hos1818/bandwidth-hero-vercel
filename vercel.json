@@ -15,7 +15,7 @@
     }
   ],
   "env": {
-    "PLAYWRIGHT_BROWSERS_PATH": "0"  // Ensures Playwright uses packaged browsers
+    "PLAYWRIGHT_BROWSERS_PATH": "0"
   }
 }
 
