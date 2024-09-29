@@ -1,20 +1,27 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const {executablePath} = require('puppeteer');
 
 // Use the stealth plugin
+puppeteerStealth.enabledEvasions.delete("user-agent-override");
 puppeteer.use(StealthPlugin());
+
 
 // Function to request a URL bypassing Cloudflare.
 async function bypassCloudflareWithPuppeteer(url) {
   const browser = await puppeteer.launch({
-    headless: true,
-    targetFilter: (target) => !!target.url,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    executablePath: executablePath(),
+    headless: false,
+    targetFilter: (target) => target.type() !== "other",
+    args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox', 
+        '--disable-notifications', 
+        '--auto-open-devtools-for-tabs', 
+        '--disable-dev-shm-usage',
+    ],
   });
   const page = await browser.newPage();
-
-  // Set a random user agent
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 5.1; rv:5.0) Gecko/20100101 Firefox/5.0');
 
   // Enable/disable JavaScript based on the website's requirements
   await page.setJavaScriptEnabled(true);
@@ -24,7 +31,8 @@ async function bypassCloudflareWithPuppeteer(url) {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       // Set a timeout for the page loading
-      await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+      await page.goto(url);
+      await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
       await page.waitForSelector('body', { timeout: 30000 }); // Wait for the body element
 
       // Get the page content
