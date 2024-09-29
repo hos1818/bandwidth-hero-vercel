@@ -5,6 +5,7 @@ const morgan = require('morgan')
 const authenticate = require('./src/authenticate')
 const params = require('./src/params')
 const proxy = require('./src/proxy')
+const proxyRequest = require('./src/proxyRequest') // Use the new proxy request with Cloudflare bypass
 
 const app = express()
 const PORT = process.env.PORT || 443
@@ -14,7 +15,7 @@ const PORT = process.env.PORT || 443
 app.use(morgan('combined'))
 
 app.enable('trust proxy')
-app.get('/', authenticate, params, proxy)
+app.get('/', authenticate, params, proxy, proxyRequest)
 app.get('/favicon.ico', (req, res) => res.status(204).end())
 app.listen(PORT, () => {
     console.log(`Listening on ${PORT}`)
