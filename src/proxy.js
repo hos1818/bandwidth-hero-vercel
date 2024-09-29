@@ -115,6 +115,10 @@ async function proxy(req, res) {
 
         copyHeaders(originResponse, res);
 
+        // Set additional headers
+        res.set('X-Proxy', 'Cloudflare Worker');
+        res.set('Access-Control-Allow-Origin', '*'); // Allow CORS if needed
+        
         res.setHeader('content-encoding', 'identity');
         req.params.originType = headers['content-type'] || '';
         req.params.originSize = decompressedData.length;
