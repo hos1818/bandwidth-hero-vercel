@@ -1,72 +1,4 @@
-const playwright = require('playwright-aws-lambda');
-
-async function bypassCloudflareWithPlaywright(url) {
-  let browser;
-
-  try {
-    // Launch Chromium browser using playwright-aws-lambda
-    browser = await playwright.launchChromium({
-      headless: true, // Run headless for production
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-web-security',
-        '--disable-features=IsolateOrigins,site-per-process',
-        '--disable-dev-shm-usage',
-        '--incognito', // Use incognito mode for each request
-      ],
-    });
-
-    const context = await browser.newContext({
-      viewport: { width: 1280, height: 720 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36', // Realistic User-Agent
-      locale: 'en-US', // Language settings
-    });
-
-    const page = await context.newPage();
-
-    // Set additional headers
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': 'en-US,en;q=0.9',
-    });
-
-    // Custom retry logic to handle Cloudflare or connection issues
-    const maxAttempts = 5;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        // Navigate to the URL
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-
-        // Check for CAPTCHA or Cloudflare block
-        const captchaDetected = await page.$('.g-recaptcha');
-        if (captchaDetected) {
-          throw new Error("CAPTCHA detected! Requires manual or automated solving.");
-        }
-
-        // Ensure the page loaded successfully
-        await page.waitForSelector('body', { timeout: 30000 });
-
-        // Capture and return the page content
-        const content = await page.content();
-        await browser.close();
-        return content;
-
-      } catch (error) {
-        console.warn(`Attempt ${attempt} failed:`, error.message);
-        if (attempt === maxAttempts) {
-          throw new Error(`Failed to load ${url} after ${maxAttempts} attempts.`);
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Error during browser interaction:', error.message);
-    throw error;
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
-  }
-}
+const axios = require('axios');
 
 // Proxy request logic
 async function proxyRequest(req, res) {
@@ -77,12 +9,21 @@ async function proxyRequest(req, res) {
   }
 
   try {
-    // Bypass Cloudflare protection and retrieve page content
-    const content = await bypassCloudflareWithPlaywright(url);
-    res.status(200).send(content);
+    // Call your Cloudflare Worker with the target URL
+    const workerUrl = `https://workerforcf.hoss78307926.workers.dev?url=${encodeURIComponent(url)}`;
+    
+    // Fetch content from Cloudflare Worker
+    const response = await axios.get(workerUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      },
+    });
+
+    // Return the content from Cloudflare Worker
+    res.status(response.status).send(response.data);
   } catch (err) {
-    console.error(`Failed to bypass Cloudflare for ${url}:`, err);
-    res.status(500).send('Failed to bypass Cloudflare.');
+    console.error(`Failed to fetch content from Cloudflare Worker for ${url}:`, err);
+    res.status(500).send('Failed to fetch content.');
   }
 }
 
