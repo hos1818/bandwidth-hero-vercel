@@ -23,8 +23,7 @@
     "lzma-native": "^8.0.6",
     "zstd-codec": "^0.1.5",
     "validator": "^13.12.0",
-    "puppeteer": "^23.4.1",
-    "cloudflare-scraper": "^2.0.0",
+    "puppeteer": "^23.4.0",
     "morgan": "^1.10.0"
   },
   "engines": {
