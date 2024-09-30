@@ -9,6 +9,7 @@ const compress = require('./compress');
 const bypass = require('./bypass');
 const copyHeaders = require('./copyHeaders');
 const http2 = require('node:http2');
+const https = require('node:https');
 const Bottleneck = require('bottleneck');
 const cloudscraper = require('cloudscraper');
 
@@ -78,6 +79,23 @@ async function makeRequest(config) {
 
 // Enhanced cloudscraper handling function
 async function makeCloudscraperRequest(config) {
+    const ciphers = [
+        'ECDHE-ECDSA-AES128-GCM-SHA256',
+        'ECDHE-RSA-AES128-GCM-SHA256',
+        'ECDHE-ECDSA-AES256-GCM-SHA384',
+        'ECDHE-RSA-AES256-GCM-SHA384',
+        'DHE-RSA-AES128-GCM-SHA256',
+        'DHE-RSA-AES256-GCM-SHA384'
+    ].join(':');
+
+    const agent = new https.Agent({
+        ciphers,
+        honorCipherOrder: true,
+        secureOptions: https.constants.SSL_OP_NO_TLSv1 | https.constants.SSL_OP_NO_TLSv1_1, // Disable older versions of TLS
+        keepAlive: true,
+    });
+
+    
     return new Promise((resolve, reject) => {
         cloudscraper.get({
             uri: config.url.href,
@@ -85,11 +103,19 @@ async function makeCloudscraperRequest(config) {
             gzip: true,
             encoding: null, // Get the raw buffer data
             cloudflareTimeout: 5000,
-            decodeEmails: false,   // Remove Cloudflare's email protection, replace encoded email with decoded versions
-            agentOptions: { ciphers }   // Removes a few problematic TLSv1.0 ciphers to avoid CAPTCHA
+            decodeEmails: true,   // Decodes Cloudflare email obfuscation
+            agentOptions: {
+                httpsAgent: agent
+            },
+            timeout: config.timeout || 10000  // Global timeout (10 seconds by default)
         }, (error, response, body) => {
             if (error) {
-                reject(error);
+                if (retries > 0) {
+                    console.warn(`Cloudscraper request failed. Retrying... Attempts left: ${retries}`);
+                    return resolve(makeCloudscraperRequest(config, retries - 1));  // Retry
+                }
+                console.error(`Cloudscraper failed after retries: ${error.message}`);
+                return reject(new CloudscraperError('Cloudscraper Request Failed', response));
             } else {
                 resolve({ headers: response.headers, data: body });
             }
