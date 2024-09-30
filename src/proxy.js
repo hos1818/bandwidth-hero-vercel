@@ -10,7 +10,7 @@ const bypass = require('./bypass');
 const copyHeaders = require('./copyHeaders');
 const http2 = require('node:http2');
 const Bottleneck = require('bottleneck');
-//const proxyRequest = require('./proxyRequest');
+const cloudscraper = require('cloudscraper');
 
 // Decompression utility function
 async function decompress(data, encoding) {
@@ -76,6 +76,27 @@ async function makeRequest(config) {
     return limiter.schedule(() => axios(config));
 }
 
+// Enhanced cloudscraper handling function
+async function makeCloudscraperRequest(config) {
+    return new Promise((resolve, reject) => {
+        cloudscraper.get({
+            uri: config.url.href,
+            headers: config.headers,
+            gzip: true,
+            encoding: null, // Get the raw buffer data
+            cloudflareTimeout: 5000,
+            followAllRedirects: true,  // followAllRedirects - follow non-GET HTTP 3xx responses as redirects
+            decodeEmails: false,   // Remove Cloudflare's email protection, replace encoded email with decoded versions
+            agentOptions: { ciphers }   // Removes a few problematic TLSv1.0 ciphers to avoid CAPTCHA
+        }, (error, response, body) => {
+            if (error) {
+                reject(error);
+            } else {
+                resolve({ headers: response.headers, data: body });
+            }
+        });
+    });
+}
 
 // Proxy function to handle requests
 async function proxy(req, res) {
@@ -106,7 +127,7 @@ async function proxy(req, res) {
     try {
         let originResponse;
 
-        // First attempt regular request
+        // First attempt regular request (either HTTP/1 or HTTP/2)
         if (config.url.protocol === 'http2:') {
             originResponse = await makeHttp2Request(config);
         } else {
@@ -114,11 +135,10 @@ async function proxy(req, res) {
         }
 
         // Check for Cloudflare status codes
-        /* if (originResponse.status === 403 || originResponse.status === 503) {
-            // Use Puppeteer to bypass Cloudflare challenge
-            const response = await proxyRequest(req, res);
-            return res.status(200).send(response);
-        } */
+        if (originResponse.status === 403 || originResponse.status === 503) {
+            console.log('Cloudflare detected, retrying with cloudscraper...');
+            originResponse = await makeCloudscraperRequest(config); // Fallback to cloudscraper
+        }
 
         const { headers, data } = originResponse;
         const contentEncoding = headers['content-encoding'];
@@ -129,7 +149,7 @@ async function proxy(req, res) {
         // Set additional headers
         res.set('X-Proxy', 'Cloudflare Worker');
         res.set('Access-Control-Allow-Origin', '*'); // Allow CORS if needed
-        
+
         res.setHeader('content-encoding', 'identity');
         req.params.originType = headers['content-type'] || '';
         req.params.originSize = decompressedData.length;
