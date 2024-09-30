@@ -85,7 +85,6 @@ async function makeCloudscraperRequest(config) {
             gzip: true,
             encoding: null, // Get the raw buffer data
             cloudflareTimeout: 5000,
-            followAllRedirects: true,  // followAllRedirects - follow non-GET HTTP 3xx responses as redirects
             decodeEmails: false,   // Remove Cloudflare's email protection, replace encoded email with decoded versions
             agentOptions: { ciphers }   // Removes a few problematic TLSv1.0 ciphers to avoid CAPTCHA
         }, (error, response, body) => {
