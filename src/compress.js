@@ -4,7 +4,7 @@ const isAnimated = require('is-animated');
 const { URL } = require('url');
 
 async function compress(req, res, input) {
-    const format = req.params.format;
+    const format = req.params.webp ? 'webp' : 'jpeg';
     const originType = req.params.originType;
     sharp(input)
         .metadata(async (err, metadata) => {
