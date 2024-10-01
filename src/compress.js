@@ -23,7 +23,6 @@ async function compress(req, res, input) {
 	                saturation: 1.2, // Enhance colors
 	            })
 	            .median(3) // Aggressive noise reduction
-		    .blur(1)   // Then, apply a mild Gaussian blur
 		    .sharpen(1, 1, 0.5) // Moderate sharpening
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
@@ -51,7 +50,6 @@ async function compress(req, res, input) {
 	                saturation: 1.2, // Enhance colors
 	            })
 	            .median(3) // Aggressive noise reduction
-		    .blur(1)   // Then, apply a mild Gaussian blur
 		    .sharpen(1, 1, 0.5) // Moderate sharpening
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
