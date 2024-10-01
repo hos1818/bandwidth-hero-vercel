@@ -5,36 +5,62 @@ const { URL } = require('url');
 
 async function compress(req, res, input) {
     try {
-        const format = req.params.webp ? 'avif' : 'jpeg';
-        const originType = req.params.originType;
-        const metadata = await sharp(input).metadata(); // Fetch metadata asynchronously
-        const pixelCount = metadata.width * metadata.height;
-        const compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
+        // Determine format based on request parameters
+        const isWebP = req.params.webp === 'true'; // Explicit boolean check
+        const format = isWebP ? 'avif' : 'jpeg';
+        const { originType, grayscale, quality, url, originSize } = req.params;
 
-        const transformations = sharp(input)
-            .grayscale(req.params.grayscale)
+        // Initialize Sharp with animated support
+        const sanimated = isAnimated(input); // Function to detect if input is animated
+        let transformations = sharp(input, { animated: sanimated });
+
+        // Get metadata for image properties
+        const metadata = await transformations.metadata();
+        if (!metadata.width || !metadata.height) {
+            throw new Error('Invalid image metadata');
+        }
+
+        // Calculate compression quality based on metadata and request parameters
+        const pixelCount = metadata.width * metadata.height;
+        const compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, quality);
+
+        // Apply grayscale only if requested
+        if (grayscale) transformations = transformations.grayscale();
+
+        // Common transformations for both static and animated images
+        transformations = transformations
             .sharpen(1, 1, 0.5) // Moderate sharpening
             .gamma(2.2) // Gamma correction for brightness/contrast
             .modulate({
                 brightness: 1.1, // Brighten slightly
                 saturation: 1.2, // Enhance colors
             })
-            .median(3) // Aggressive noise reduction
-            .toFormat(format, {
-                chromaSubsampling: '4:2:0',
+            .median(3); // Aggressive noise reduction
+
+        // Format conversion and compression for animated or static images
+        if (animated) {
+            // Specific handling for animated images
+            transformations = transformations.toFormat(format, {
                 quality: compressionQuality,
+                chromaSubsampling: '4:2:0',
+                loop: 0, // Enable animated output
             });
+        } else {
+            // Static image transformations
+            transformations = transformations.toFormat(format, {
+                quality: compressionQuality,
+                chromaSubsampling: '4:2:0',
+            });
+        }
 
-        // Apply transformations and convert
-        const output = await (format === 'avif' && isAnimated(input) 
-            ? transformations.animated(true).toBuffer()
-            : transformations.toBuffer());
+        // Apply transformations and output buffer
+        const output = await transformations.toBuffer();
 
-        // Send the transformed image
-        sendImage(res, output, format, req.params.url, req.params.originSize);
+        // Send the transformed image back to the client
+        sendImage(res, output, format, url, originSize);
     } catch (err) {
-        console.error("Error in image compression:", err);
-        return redirect(req, res);
+        console.error('Error in image compression:', err.message); // Log error
+        return redirect(req, res); // Redirect on failure
     }
 }
 
