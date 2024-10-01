@@ -4,64 +4,53 @@ const isAnimated = require('is-animated');
 const { URL } = require('url');
 
 async function compress(req, res, input) {
-    try {
-        // Determine format based on request parameters
-        const isWebP = req.params.webp === 'true'; // Explicit boolean check
-        const format = isWebP ? 'avif' : 'jpeg';
-        const { originType, grayscale, quality, url, originSize } = req.params;
-
-        // Initialize Sharp with animated support
-        const sanimated = isAnimated(input); // Function to detect if input is animated
-        let transformations = sharp(input, { animated: sanimated });
-
-        // Get metadata for image properties
-        const metadata = await transformations.metadata();
-        if (!metadata.width || !metadata.height) {
-            throw new Error('Invalid image metadata');
-        }
-
-        // Calculate compression quality based on metadata and request parameters
-        const pixelCount = metadata.width * metadata.height;
-        const compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, quality);
-
-        // Apply grayscale only if requested
-        if (grayscale) transformations = transformations.grayscale();
-
-        // Common transformations for both static and animated images
-        transformations = transformations
-            .sharpen(1, 1, 0.5) // Moderate sharpening
-            .gamma(2.2) // Gamma correction for brightness/contrast
-            .modulate({
-                brightness: 1.1, // Brighten slightly
-                saturation: 1.2, // Enhance colors
-            })
-            .median(3); // Aggressive noise reduction
-
-        // Format conversion and compression for animated or static images
-        if (animated) {
-            // Specific handling for animated images
-            transformations = transformations.toFormat(format, {
-                quality: compressionQuality,
-                chromaSubsampling: '4:2:0',
-                loop: 0, // Enable animated output
-            });
-        } else {
-            // Static image transformations
-            transformations = transformations.toFormat(format, {
-                quality: compressionQuality,
-                chromaSubsampling: '4:2:0',
-            });
-        }
-
-        // Apply transformations and output buffer
-        const output = await transformations.toBuffer();
-
-        // Send the transformed image back to the client
-        sendImage(res, output, format, url, originSize);
-    } catch (err) {
-        console.error('Error in image compression:', err.message); // Log error
-        return redirect(req, res); // Redirect on failure
-    }
+    const format = req.params.format;
+    const originType = req.params.originType;
+    sharp(input)
+        .metadata(async (err, metadata) => {
+            if (err) {
+                console.error("Error fetching metadata:", err);
+                return redirect(req, res);
+            }
+            let pixelCount = metadata.width * metadata.height;
+            let compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, req.params.quality);
+            if (format === 'webp' && isAnimated(input)) {
+                sharp(input, { animated: true })
+                    .grayscale(req.params.grayscale)
+                    .toFormat(format, {
+                        quality: compressionQuality, //output image quality.
+                        loop: 0,
+			alphaQuality: 100, //quality of alpha layer, integer 0-100.
+                        smartSubsample: true, //use high quality chroma subsampling.
+                        progressive: true,
+                        optimizeScans: true
+                    })
+                    .toBuffer((err, output, info) => {
+                        if (err || !info || res.headersSent) {
+                            console.error("Error in image compression:", err);
+                            return redirect(req, res);
+                        }
+                        sendImage(res, output, format, req.params.url, req.params.originSize);
+                    });
+            } else {
+                sharp(input)
+                    .grayscale(req.params.grayscale)
+                    .toFormat(format, {
+                        quality: compressionQuality, //output image quality.
+                        alphaQuality: 100, //quality of alpha layer, integer 0-100.
+                        smartSubsample: true, //use high quality chroma subsampling.
+                        progressive: true,
+                        optimizeScans: true
+                    })
+                    .toBuffer((err, output, info) => {
+                        if (err || !info || res.headersSent) {
+                            console.error("Error in image compression:", err);
+                            return redirect(req, res);
+                        }
+                        sendImage(res, output, format, req.params.url, req.params.originSize);
+                    });
+            }
+        });
 }
 
 // Function to calculate quality factor based on pixel count and size
