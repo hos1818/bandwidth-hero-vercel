@@ -40,7 +40,7 @@ async function decompress(data, encoding) {
     if (decompressors[encoding]) {
         return decompressors[encoding]();
     } else {
-        console.warn(Unknown content-encoding: ${encoding});
+        console.warn(`Unknown content-encoding: ${encoding}`);
         return data;
     }
 }
@@ -59,7 +59,9 @@ async function makeHttp2Request(config) {
         const req = client.request(headers);
         let data = [];
 
-        req.on('response', (headers, flags) => resolve({ headers, flags, data }));
+        req.on('response', (headers, flags) => {
+            data = []; // Clear data on each new response
+        });
         req.on('data', chunk => data.push(chunk));
         req.on('end', () => resolve(Buffer.concat(data)));
         req.on('error', err => reject(err));
@@ -78,7 +80,7 @@ async function makeRequest(config) {
 }
 
 // Enhanced cloudscraper handling function
-async function makeCloudscraperRequest(config) {
+async function makeCloudscraperRequest(config, retries = 3) {
     const ciphers = [
         'ECDHE-ECDSA-AES128-GCM-SHA256',
         'ECDHE-RSA-AES128-GCM-SHA256',
@@ -95,7 +97,6 @@ async function makeCloudscraperRequest(config) {
         keepAlive: true,
     });
 
-    
     return new Promise((resolve, reject) => {
         cloudscraper.get({
             uri: config.url.href,
@@ -111,11 +112,11 @@ async function makeCloudscraperRequest(config) {
         }, (error, response, body) => {
             if (error) {
                 if (retries > 0) {
-                    console.warn(Cloudscraper request failed. Retrying... Attempts left: ${retries});
+                    console.warn(`Cloudscraper request failed. Retrying... Attempts left: ${retries}`);
                     return resolve(makeCloudscraperRequest(config, retries - 1));  // Retry
                 }
-                console.error(Cloudscraper failed after retries: ${error.message});
-                return reject(new CloudscraperError('Cloudscraper Request Failed', response));
+                console.error(`Cloudscraper failed after retries: ${error.message}`);
+                return reject(new Error('Cloudscraper Request Failed'));
             } else {
                 resolve({ headers: response.headers, data: body });
             }
@@ -186,7 +187,7 @@ async function proxy(req, res) {
         }
     } catch (error) {
         if (error.response) {
-            console.error(Server responded with status: ${error.response.status});
+            console.error(`Server responded with status: ${error.response.status}`);
         } else if (error.request) {
             console.error('No response received:', error.request);
         } else {
