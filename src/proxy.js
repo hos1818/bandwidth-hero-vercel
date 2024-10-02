@@ -1,4 +1,5 @@
 const axios = require('axios');
+const got = require('got'); // Replace axios with got
 const { pick } = require('lodash');
 const zlib = require('node:zlib');
 const lzma = require('lzma-native');
@@ -75,8 +76,18 @@ const limiter = new Bottleneck({
     minTime: 2000, // Minimum time between requests in milliseconds
 });
 
+// Got-based request handling with limiter
 async function makeRequest(config) {
-    return limiter.schedule(() => axios(config));
+    return limiter.schedule(() =>
+        got(config.url.href, {
+            method: config.method,
+            headers: config.headers,
+            timeout: { request: config.timeout },
+            responseType: 'buffer', // Similar to axios' `responseType: 'arraybuffer'`
+            followRedirect: config.maxRedirects || 5, // Follow redirects
+            decompress: false, // Disable automatic decompression (you handle it manually)
+        })
+    );
 }
 
 // Enhanced cloudscraper handling function
