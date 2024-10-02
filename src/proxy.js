@@ -82,10 +82,20 @@ async function makeRequest(config) {
         got(config.url.href, {
             method: config.method,
             headers: config.headers,
-            timeout: { request: config.timeout },
-            responseType: 'buffer', // Similar to axios' `responseType: 'arraybuffer'`
-            followRedirect: config.maxRedirects || 5, // Follow redirects
-            decompress: false, // Disable automatic decompression (you handle it manually)
+            timeout: { request: config.timeout }, // Timeout handling
+            responseType: 'buffer', // Get raw buffer response
+            maxRedirects: config.maxRedirects || 5, // Maximum redirects to follow
+            decompress: false, // Disable automatic decompression
+            retry: 0, // Disable automatic retries (handle it manually if needed)
+        }).then(response => {
+            return {
+                status: response.statusCode,
+                headers: response.headers,
+                data: response.body, // The raw buffer data
+            };
+        }).catch(error => {
+            // Handle any error
+            throw new Error(`Request failed: ${error.message}`);
         })
     );
 }
