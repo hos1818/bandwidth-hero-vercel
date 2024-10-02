@@ -80,7 +80,7 @@ async function makeRequest(config) {
 }
 
 // Enhanced cloudscraper handling function
-async function makeCloudscraperRequest(req, res, config, retries = 3) {
+async function makeCloudscraperRequest(config, retries = 3) {
     const ciphers = [
         'ECDHE-ECDSA-AES128-GCM-SHA256',
         'ECDHE-RSA-AES128-GCM-SHA256',
@@ -105,35 +105,20 @@ async function makeCloudscraperRequest(req, res, config, retries = 3) {
             encoding: null, // Get the raw buffer data
             cloudflareTimeout: 5000,
             decodeEmails: true,   // Decodes Cloudflare email obfuscation
-            followAllRedirects: false,  // Disable automatic redirect following
             agentOptions: {
                 httpsAgent: agent
             },
             timeout: config.timeout || 10000  // Global timeout (10 seconds by default)
-        }, async (error, response, body) => {
+        }, (error, response, body) => {
             if (error) {
                 if (retries > 0) {
                     console.warn(`Cloudscraper request failed. Retrying... Attempts left: ${retries}`);
-                    return resolve(await makeCloudscraperRequest(req, res, config, retries - 1));  // Retry
+                    return resolve(makeCloudscraperRequest(config, retries - 1));  // Retry
                 }
                 console.error(`Cloudscraper failed after retries: ${error.message}`);
                 return reject(new Error('Cloudscraper Request Failed'));
             } else {
-                // Check if the response is a redirect (302)
-                if (response.statusCode === 302) {
-                    const newUrl = response.headers.location;
-                    console.warn('Redirect detected, following to:', newUrl);
-
-                    // Update the config with the new URL and try again
-                    return resolve(await makeCloudscraperRequest(req, res, { ...config, url: new URL(newUrl) }, retries));
-                } else if (response.statusCode === 200) {
-                    // Successful response, now compress the image
-                    const imageData = body; // Raw image data
-                    await compress(req, res, imageData); // Call the compress function
-                    resolve(); // Resolve the promise after compression
-                } else {
-                    reject(new Error(`Unexpected status code: ${response.statusCode}`));
-                }
+                resolve({ headers: response.headers, data: body });
             }
         });
     });
@@ -178,7 +163,7 @@ async function proxy(req, res) {
         // Check for Cloudflare status codes
         if (originResponse.status === 403 || originResponse.status === 503) {
             console.log('Cloudflare detected, retrying with cloudscraper...');
-            originResponse = await makeCloudscraperRequest(req, res, config); // Fallback to the modified cloudscraper
+            originResponse = await makeCloudscraperRequest(config); // Fallback to cloudscraper
         }
 
         const { headers, data } = originResponse;
