@@ -105,20 +105,33 @@ async function makeCloudscraperRequest(config, retries = 3) {
             encoding: null, // Get the raw buffer data
             cloudflareTimeout: 5000,
             decodeEmails: true,   // Decodes Cloudflare email obfuscation
+            followAllRedirects: true,  // Follow redirects (default: up to 10 redirects)
             agentOptions: {
                 httpsAgent: agent
             },
             timeout: config.timeout || 10000  // Global timeout (10 seconds by default)
-        }, (error, response, body) => {
+        }, async (error, response, body) => {
             if (error) {
                 if (retries > 0) {
                     console.warn(`Cloudscraper request failed. Retrying... Attempts left: ${retries}`);
-                    return resolve(makeCloudscraperRequest(config, retries - 1));  // Retry
+                    return resolve(await makeCloudscraperRequest(config, retries - 1));  // Retry
                 }
                 console.error(`Cloudscraper failed after retries: ${error.message}`);
                 return reject(new Error('Cloudscraper Request Failed'));
             } else {
-                resolve({ headers: response.headers, data: body });
+                // Check if the response is not 200
+                if (response.statusCode === 302) {
+                    // Handle the 302 redirect if you want to capture the new location
+                    console.warn('Redirect detected, following to:', response.headers.location);
+                    const newUrl = response.headers.location;
+                    // Update the config with the new URL and try again
+                    return resolve(await makeCloudscraperRequest({ ...config, url: new URL(newUrl) }, retries));
+                } else if (response.statusCode === 200) {
+                    // Successful response
+                    resolve({ headers: response.headers, data: body });  // Just resolve with headers and image data
+                } else {
+                    reject(new Error(`Unexpected status code: ${response.statusCode}`));
+                }
             }
         });
     });
