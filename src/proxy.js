@@ -79,8 +79,8 @@ const limiter = new Bottleneck({
 // Got-based request handling with limiter
 async function makeRequest(config) {
     return limiter.schedule(() =>
-        got(config.url.href, {
-            method: config.method,
+        url_got = new URL(req.params.url),
+        got.get(url_got, {
             headers: config.headers,
             timeout: { request: config.timeout },
             responseType: 'buffer', // Similar to axios' `responseType: 'arraybuffer'`
