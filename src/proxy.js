@@ -1,4 +1,4 @@
-const axios = require('axios');
+const got = require('got'); // Replace axios with got
 const { pick } = require('lodash');
 const zlib = require('node:zlib');
 const lzma = require('lzma-native');
@@ -7,13 +7,10 @@ const shouldCompress = require('./shouldCompress');
 const redirect = require('./redirect');
 const compress = require('./compress');
 const bypass = require('./bypass');
-const copyHeaders = require('./copyHeaders');
-const http2 = require('node:http2');
-const https = require('node:https');
 const Bottleneck = require('bottleneck');
 const cloudscraper = require('cloudscraper');
 
-// Decompression utility function
+// Decompression utility function (unchanged)
 async function decompress(data, encoding) {
     const decompressors = {
         gzip: () => zlib.promises.gunzip(data),
@@ -45,39 +42,45 @@ async function decompress(data, encoding) {
     }
 }
 
-// HTTP/2 request handling
+// HTTP/2 request handling using Got (Got natively supports HTTP/2)
 async function makeHttp2Request(config) {
-    return new Promise((resolve, reject) => {
-        const client = http2.connect(config.url.origin);
-        const headers = {
-            ':method': 'GET',
-            ':path': config.url.pathname,
-            ...pick(config.headers, ['cookie', 'dnt', 'referer']),
-            'user-agent': config.headers['user-agent'],
-        };
-
-        const req = client.request(headers);
-        let data = [];
-
-        req.on('response', (headers, flags) => resolve({ headers, flags, data }));
-        req.on('data', chunk => data.push(chunk));
-        req.on('end', () => resolve(Buffer.concat(data)));
-        req.on('error', err => reject(err));
-
-        req.end();
-    });
+    try {
+        const response = await got(config.url.href, {
+            method: 'GET',
+            headers: {
+                ...pick(config.headers, ['cookie', 'dnt', 'referer']),
+                'user-agent': config.headers['user-agent'],
+            },
+            http2: true, // Enable HTTP/2 in Got
+            responseType: 'buffer', // Get response as Buffer (similar to arraybuffer in axios)
+            decompress: false, // Disable Got's automatic decompression
+        });
+        return { headers: response.headers, data: response.body };
+    } catch (error) {
+        throw error;
+    }
 }
 
-// Create a limiter with a maximum of 1 request every 2 seconds
+// Create a limiter (unchanged)
 const limiter = new Bottleneck({
     minTime: 2000, // Minimum time between requests in milliseconds
 });
 
+// Got-based request handling with limiter
 async function makeRequest(config) {
-    return limiter.schedule(() => axios(config));
+    return limiter.schedule(() =>
+        got(config.url.href, {
+            method: config.method,
+            headers: config.headers,
+            timeout: { request: config.timeout },
+            responseType: 'buffer', // Similar to axios' `responseType: 'arraybuffer'`
+            followRedirect: config.maxRedirects || 5, // Follow redirects
+            decompress: false, // Disable automatic decompression (you handle it manually)
+        })
+    );
 }
 
-// Enhanced cloudscraper handling function
+// Enhanced cloudscraper handling function (unchanged)
 async function makeCloudscraperRequest(config) {
     const ciphers = [
         'ECDHE-ECDSA-AES128-GCM-SHA256',
@@ -91,11 +94,10 @@ async function makeCloudscraperRequest(config) {
     const agent = new https.Agent({
         ciphers,
         honorCipherOrder: true,
-        secureOptions: https.constants.SSL_OP_NO_TLSv1 | https.constants.SSL_OP_NO_TLSv1_1, // Disable older versions of TLS
+        secureOptions: https.constants.SSL_OP_NO_TLSv1 | https.constants.SSL_OP_NO_TLSv1_1,
         keepAlive: true,
     });
 
-    
     return new Promise((resolve, reject) => {
         cloudscraper.get({
             uri: config.url.href,
@@ -103,27 +105,20 @@ async function makeCloudscraperRequest(config) {
             gzip: true,
             encoding: null, // Get the raw buffer data
             cloudflareTimeout: 5000,
-            decodeEmails: true,   // Decodes Cloudflare email obfuscation
-            agentOptions: {
-                httpsAgent: agent
-            },
-            timeout: config.timeout || 10000  // Global timeout (10 seconds by default)
+            decodeEmails: true,
+            agentOptions: { httpsAgent: agent },
+            timeout: config.timeout || 10000,
         }, (error, response, body) => {
             if (error) {
-                if (retries > 0) {
-                    console.warn(`Cloudscraper request failed. Retrying... Attempts left: ${retries}`);
-                    return resolve(makeCloudscraperRequest(config, retries - 1));  // Retry
-                }
-                console.error(`Cloudscraper failed after retries: ${error.message}`);
-                return reject(new CloudscraperError('Cloudscraper Request Failed', response));
-            } else {
-                resolve({ headers: response.headers, data: body });
+                console.error(`Cloudscraper failed: ${error.message}`);
+                return reject(error);
             }
+            resolve({ headers: response.headers, data: body });
         });
     });
 }
 
-// Proxy function to handle requests
+// Proxy function to handle requests using Got
 async function proxy(req, res) {
     const config = {
         url: new URL(req.params.url),
@@ -136,33 +131,24 @@ async function proxy(req, res) {
             'Cache-Control': 'no-cache',
             'DNT': '1',
             'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
-            'Connection': 'keep-alive',  // Often required for persistent connections
-            'Pragma': 'no-cache',          // An additional header that can help in some cases
-            'Sec-Fetch-Mode': 'navigate',  // Useful for navigation requests
-            'Sec-Fetch-Site': 'same-origin',// Indicate the request's context
-            'Sec-Fetch-User': '?1',        // To indicate that this is a user-initiated request
+            'Connection': 'keep-alive',
+            'Pragma': 'no-cache',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-User': '?1',
             via: '2.0 bandwidth-hero',
         },
         timeout: 5000,
         maxRedirects: 5,
-        responseType: 'arraybuffer',
-        validateStatus: status => status < 500,
     };
 
     try {
         let originResponse;
 
-        // First attempt regular request (either HTTP/1 or HTTP/2)
         if (config.url.protocol === 'http2:') {
             originResponse = await makeHttp2Request(config);
         } else {
-            originResponse = await makeRequest(config); // Use the rate-limited request
-        }
-
-        // Check for Cloudflare status codes
-        if (originResponse.status === 403 || originResponse.status === 503) {
-            console.log('Cloudflare detected, retrying with cloudscraper...');
-            originResponse = await makeCloudscraperRequest(config); // Fallback to cloudscraper
+            originResponse = await makeRequest(config); // Use Got for rate-limited request
         }
 
         const { headers, data } = originResponse;
@@ -171,9 +157,8 @@ async function proxy(req, res) {
 
         copyHeaders(originResponse, res);
 
-        // Set additional headers
         res.set('X-Proxy', 'Cloudflare Worker');
-        res.set('Access-Control-Allow-Origin', '*'); // Allow CORS if needed
+        res.set('Access-Control-Allow-Origin', '*');
 
         res.setHeader('content-encoding', 'identity');
         req.params.originType = headers['content-type'] || '';
@@ -185,13 +170,7 @@ async function proxy(req, res) {
             bypass(req, res, decompressedData);
         }
     } catch (error) {
-        if (error.response) {
-            console.error(`Server responded with status: ${error.response.status}`);
-        } else if (error.request) {
-            console.error('No response received:', error.request);
-        } else {
-            console.error('Error setting up request:', error.message);
-        }
+        console.error(`Error during proxying: ${error.message}`);
         redirect(req, res);
     }
 }
