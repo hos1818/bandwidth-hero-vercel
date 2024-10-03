@@ -32,7 +32,8 @@ async function compress(req, res, input) {
                         progressive: true,
                         optimizeScans: true,
 		    	palette: true,
-		    	dither: 1.0
+		    	dither: 1.0,
+	    		compressionLevel: 9
                     })
                     .toBuffer((err, output, info) => {
                         if (err || !info || res.headersSent) {
@@ -58,7 +59,8 @@ async function compress(req, res, input) {
                         progressive: true,
                         optimizeScans: true,
 		    	palette: true,
-		    	dither: 1.0
+		    	dither: 1.0,
+	    		compressionLevel: 9
                     })
                     .toBuffer((err, output, info) => {
                         if (err || !info || res.headersSent) {
