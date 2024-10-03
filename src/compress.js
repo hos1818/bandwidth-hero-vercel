@@ -30,9 +30,7 @@ async function compress(req, res, input) {
 			alphaQuality: 100, //quality of alpha layer, integer 0-100.
                         smartSubsample: true, //use high quality chroma subsampling.
                         progressive: true,
-                        optimizeScans: true,
-			palette: true,
-			dither: 1.0
+                        optimizeScans: true
                     })
                     .toBuffer((err, output, info) => {
                         if (err || !info || res.headersSent) {
@@ -56,9 +54,7 @@ async function compress(req, res, input) {
                         alphaQuality: 100, //quality of alpha layer, integer 0-100.
                         smartSubsample: true, //use high quality chroma subsampling.
                         progressive: true,
-                        optimizeScans: true,
-		    	palette: true,
-			dither: 1.0
+                        optimizeScans: true
                     })
                     .toBuffer((err, output, info) => {
                         if (err || !info || res.headersSent) {
