@@ -45,11 +45,11 @@ async function compress(req, res, input) {
             } else {
                 sharp(input)
                     .grayscale(req.params.grayscale)
-	            //.gamma(2.2) // Gamma correction for brightness/contrast
-	            .modulate({
-	                brightness: 1.1, // Brighten slightly
-	                saturation: 1.1, // Enhance colors
-	            })
+	            .gamma(2.2) // Gamma correction for brightness/contrast
+	            //.modulate({
+	                //brightness: 1.1, // Brighten slightly
+	              //  saturation: 1.1, // Enhance colors
+	            //})
 	            .median(3) // Aggressive noise reduction
 		    .sharpen(1, 1, 0.5) // Moderate sharpening
                     .toFormat(format, {
