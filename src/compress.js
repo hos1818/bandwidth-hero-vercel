@@ -17,9 +17,6 @@ async function compress(req, res, input) {
             if (format === 'webp' && isAnimated(input)) {
                 sharp(input, { animated: true })
                     .grayscale(req.params.grayscale)
-	            .gamma(2.2) // Gamma correction for brightness/contrast
-	            .median(3) // Aggressive noise reduction
-		    .sharpen(1, 1, 0.5) // Moderate sharpening
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
                         loop: 0,
@@ -38,9 +35,6 @@ async function compress(req, res, input) {
             } else {
                 sharp(input)
                     .grayscale(req.params.grayscale)
-	            .gamma(2.2) // Gamma correction for brightness/contrast
-	            .median(3) // Aggressive noise reduction
-		    .sharpen(1, 1, 0.5) // Moderate sharpening
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
                         alphaQuality: 100, //quality of alpha layer, integer 0-100.
