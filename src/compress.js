@@ -50,7 +50,7 @@ async function compress(req, res, input) {
 	                //brightness: 1.1, // Brighten slightly
 	              //  saturation: 1.1, // Enhance colors
 	            //})
-	            .median(3) // Aggressive noise reduction
+	            //.median(3) // Aggressive noise reduction
 		    //.sharpen(1, 1, 0.5) // Moderate sharpening
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
@@ -59,8 +59,7 @@ async function compress(req, res, input) {
                         progressive: true,
                         optimizeScans: true,
 		    	palette: true,
-		    	dither: 1.0,
-	    		compressionLevel: 9
+		    	dither: 1.0
                     })
                     .toBuffer((err, output, info) => {
                         if (err || !info || res.headersSent) {
