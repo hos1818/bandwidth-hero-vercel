@@ -18,10 +18,6 @@ async function compress(req, res, input) {
                 sharp(input, { animated: true })
                     .grayscale(req.params.grayscale)
 	            .gamma(2.2) // Gamma correction for brightness/contrast
-	            .modulate({
-	                brightness: 1.1, // Brighten slightly
-	                saturation: 1.1, // Enhance colors
-	            })
 	            .median(3) // Aggressive noise reduction
 		    .sharpen(1, 1, 0.5) // Moderate sharpening
                     .toFormat(format, {
@@ -30,10 +26,7 @@ async function compress(req, res, input) {
 			alphaQuality: 100, //quality of alpha layer, integer 0-100.
                         smartSubsample: true, //use high quality chroma subsampling.
                         progressive: true,
-                        optimizeScans: true,
-		    	palette: true,
-		    	dither: 1.0,
-	    		compressionLevel: 9
+                        optimizeScans: true
                     })
                     .toBuffer((err, output, info) => {
                         if (err || !info || res.headersSent) {
@@ -45,13 +38,9 @@ async function compress(req, res, input) {
             } else {
                 sharp(input)
                     .grayscale(req.params.grayscale)
-	            //.gamma(2.2) // Gamma correction for brightness/contrast
-	            //.modulate({
-	                //brightness: 1.1, // Brighten slightly
-	              //  saturation: 1.1, // Enhance colors
-	            //})
-	            //.median(3) // Aggressive noise reduction
-		    //.sharpen(1, 1, 0.5) // Moderate sharpening
+	            .gamma(2.2) // Gamma correction for brightness/contrast
+	            .median(3) // Aggressive noise reduction
+		    .sharpen(1, 1, 0.5) // Moderate sharpening
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
                         alphaQuality: 100, //quality of alpha layer, integer 0-100.
