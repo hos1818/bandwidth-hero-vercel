@@ -3,28 +3,6 @@ const redirect = require('./redirect');
 const isAnimated = require('is-animated');
 const { URL } = require('url');
 
-// Advanced edge-preserving kernel (reduces block artifacts while preserving edges)
-const edgePreservingKernel = [
-  [1, 1, 1],
-  [1, -7, 1],
-  [1, 1, 1]
-];
-
-// High-pass filter kernel to enhance edges
-const highPassKernel = [
-  [-1, -1, -1],
-  [-1,  8, -1],
-  [-1, -1, -1]
-];
-
-// Deblocking and Edge-Preserving Kernel
-// This kernel gently smooths blockiness and preserves edges
-const bestGeneralKernel = [
-  [0, -1, 0],
-  [-1, 5, -1],
-  [0, -1, 0]
-];
-
 const sharpenParams = {
   sigma: 1.0, // Controls the radius of the sharpening
   flat: 1.0,  // Adjusts sharpening in flat areas
@@ -47,11 +25,6 @@ async function compress(req, res, input) {
                 sharp(input, { animated: true })
                     .grayscale(req.params.grayscale)
 		    .sharpen(sharpenParams.sigma, sharpenParams.flat, sharpenParams.jagged) // Fine-tuned sharpening
-		    .convolve({
-		      width: 3,
-		      height: 3,
-		      kernel: bestGeneralKernel.flat() // Apply edge-preserving kernel
-		    })
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
                         loop: 0,
@@ -71,11 +44,6 @@ async function compress(req, res, input) {
                 sharp(input)
                     .grayscale(req.params.grayscale)
 		    .sharpen(sharpenParams.sigma, sharpenParams.flat, sharpenParams.jagged) // Fine-tuned sharpening
-		    .convolve({
-		      width: 3,
-		      height: 3,
-		      kernel: bestGeneralKernel.flat() // Apply edge-preserving kernel
-		    })
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
                         alphaQuality: 80, //quality of alpha layer, integer 0-100.
