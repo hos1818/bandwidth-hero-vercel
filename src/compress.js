@@ -17,6 +17,14 @@ const highPassKernel = [
   [-1, -1, -1]
 ];
 
+// Deblocking and Edge-Preserving Kernel
+// This kernel gently smooths blockiness and preserves edges
+const bestGeneralKernel = [
+  [0, -1, 0],
+  [-1, 5, -1],
+  [0, -1, 0]
+];
+
 const sharpenParams = {
   sigma: 1.0, // Controls the radius of the sharpening
   flat: 1.0,  // Adjusts sharpening in flat areas
@@ -42,7 +50,7 @@ async function compress(req, res, input) {
 		    .convolve({
 		      width: 3,
 		      height: 3,
-		      kernel: edgePreservingKernel.flat() // Apply edge-preserving kernel
+		      kernel: bestGeneralKernel.flat() // Apply edge-preserving kernel
 		    })
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
@@ -66,7 +74,7 @@ async function compress(req, res, input) {
 		    .convolve({
 		      width: 3,
 		      height: 3,
-		      kernel: edgePreservingKernel.flat() // Apply edge-preserving kernel
+		      kernel: bestGeneralKernel.flat() // Apply edge-preserving kernel
 		    })
                     .toFormat(format, {
                         quality: compressionQuality, //output image quality.
