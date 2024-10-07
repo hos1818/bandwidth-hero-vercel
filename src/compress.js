@@ -18,9 +18,9 @@ const highPassKernel = [
 ];
 
 const sharpenParams = {
-  sigma: 1.5, // Controls the radius of the sharpening
+  sigma: 1.0, // Controls the radius of the sharpening
   flat: 1.0,  // Adjusts sharpening in flat areas
-  jagged: 2.5 // Adjusts sharpening in areas with jagged edges
+  jagged: 0.5 // Adjusts sharpening in areas with jagged edges
 };
 
 
