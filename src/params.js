@@ -13,33 +13,37 @@ function params(req, res, next) {
     url = url.join('&url=');
   }
 
+  // Return default response if no URL is provided.
   if (!url) {
+    console.log('No URL provided, sending default response.');
     return res.end('bandwidth-hero-proxy');
   }
 
-  // Fix URL formatting issues, especially the "bmi" transformation in some images.
+  // Replace URL formatting issues (e.g., "bmi" transformations).
   url = url.replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://');
 
-  // Enhanced URL validation using 'validator'. We enforce the presence of a valid protocol for security.
+  // Validate the URL for security (ensure it includes a valid protocol).
   if (!validator.isURL(url, { require_protocol: true })) {
     console.error(`Invalid URL received: ${url}`);
     return res.status(400).send('Invalid URL');
   }
 
-  // Pass the valid URL to the request parameters for further processing.
+  // Pass the validated and cleaned URL to the request parameters.
   req.params.url = url;
 
-  // Determine whether to use WebP or JPEG based on query parameter. WebP is used by default.
+  // Determine image format (WebP by default, unless `jpeg` is specified).
   req.params.webp = !req.query.jpeg;
 
-  // Check if the image should be in grayscale. Default is true, unless explicitly set to `0`.
+  // Determine if grayscale (default to true unless `bw=0` is explicitly passed).
   req.params.grayscale = req.query.bw != 0;
 
-  // Parse the quality parameter and enforce minimum/maximum limits.
+  // Parse the quality parameter, using defaults if invalid.
   let quality = parseInt(req.query.l, 10);
-
-  // Handle invalid quality values (e.g., NaN) and restrict the quality to the defined bounds.
-  req.params.quality = Math.min(Math.max(quality || DEFAULT_QUALITY, MIN_QUALITY), MAX_QUALITY);
+  if (isNaN(quality)) {
+    console.warn(`Invalid quality value provided: ${req.query.l}, defaulting to ${DEFAULT_QUALITY}`);
+    quality = DEFAULT_QUALITY;
+  }
+  req.params.quality = Math.min(Math.max(quality, MIN_QUALITY), MAX_QUALITY);
 
   // Proceed to the next middleware or handler.
   next();
