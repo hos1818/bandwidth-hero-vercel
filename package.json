@@ -26,7 +26,8 @@
     "validator": "^13.12.0",
     "bottleneck": "^2.19.5",
     "cloudscraper": "^4.6.0",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "@vercel/speed-insights": "^1.0.12"
   },
   "engines": {
     "node": "20.x"
