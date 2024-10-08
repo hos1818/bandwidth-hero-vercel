@@ -170,7 +170,13 @@ async function proxy(req, res) {
         const contentEncoding = headers['content-encoding'];
         let decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
 
-        copyHeaders(originResponse, res);
+        copyHeaders(originResponse, res, {
+            additionalExcludedHeaders: ['x-custom-header'],
+            transformFunction: (key, value) => key === 'x-transform-header' ? value.toUpperCase() : value,
+            overwriteExisting: false,
+            mergeArrays: true
+        });
+
 
         // Set additional headers
         res.set('X-Proxy', 'Cloudflare Worker');
