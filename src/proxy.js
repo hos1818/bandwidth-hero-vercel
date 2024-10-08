@@ -59,7 +59,7 @@ async function makeHttp2Request(config) {
         const req = client.request(headers);
         let data = [];
 
-        req.on('response', (headers, flags) => {
+        req.on('response', (headers) => {
             data = []; // Clear data on each new response
         });
         req.on('data', chunk => data.push(chunk));
@@ -176,7 +176,6 @@ async function proxy(req, res) {
             overwriteExisting: false,
             mergeArrays: true
         });
-
 
         // Set additional headers
         res.set('X-Proxy', 'Cloudflare Worker');
