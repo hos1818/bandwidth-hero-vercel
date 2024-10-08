@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 'use strict'
+import { injectSpeedInsights } from '@vercel/speed-insights';
 const express = require('express')
 const morgan = require('morgan')
 const authenticate = require('./src/authenticate')
@@ -9,6 +10,8 @@ const proxy = require('./src/proxy')
 const app = express()
 const PORT = process.env.PORT || 443
 
+// use vercel Speed Insights
+injectSpeedInsights();
 
 // HTTP request logging
 app.use(morgan('combined'))
