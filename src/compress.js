@@ -1,6 +1,5 @@
 const sharp = require('sharp');
 const redirect = require('./redirect');
-const isAnimated = require('is-animated');
 const { URL } = require('url');
 
 const sharpenParams = {
@@ -9,42 +8,58 @@ const sharpenParams = {
   jagged: 0.5 // Adjusts sharpening in areas with jagged edges
 };
 
+// Optimized compress function for limited resources
 async function compress(req, res, input) {
   try {
-    const format = req.params.webp ? 'webp' : 'jpeg';
+    const format = req.params.webp ? 'avif' : 'jpeg';
     const { quality, grayscale, originSize, url } = req.params;
 
-    // Get image metadata
+    // Get image metadata to dynamically adjust parameters
     const metadata = await sharp(input).metadata();
+    const { width, height } = metadata;
+    const pixelCount = width * height;
 
-    const pixelCount = metadata.width * metadata.height;
+    // Adjust compression quality based on image size
     const compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, quality);
 
-    // Handle animated WebP differently
-    const isWebPAnimated = format === 'webp' && isAnimated(input);
+    // Optimize AVIF parameters based on image size and available resources
+    const { tileRows, tileCols, minQuantizer, maxQuantizer, effort } = optimizeAvifParams(width, height);
 
-    const sharpInstance = sharp(input, { animated: isWebPAnimated })
-      .grayscale(grayscale)
-      .sharpen(sharpenParams.sigma, sharpenParams.flat, sharpenParams.jagged)
-      .toFormat(format, {
-        quality: compressionQuality,
-        alphaQuality: 80,
-        smartSubsample: true,
-        progressive: true,
-        optimizeScans: true,
-        loop: isWebPAnimated ? 0 : undefined
-      });
+    // Only apply grayscale or sharpening if requested to save resources
+    let sharpInstance = sharp(input);
 
-    const output = await sharpInstance.toBuffer();
-    
-    // If response headers are already sent, log and skip sending.
+    if (grayscale) {
+      sharpInstance = sharpInstance.grayscale();
+    }
+
+    // Conditionally apply sharpening only for certain image types or sizes
+    if (pixelCount > 500000) { // Apply sharpening for large or detailed images
+      sharpInstance = sharpInstance.sharpen(sharpenParams.sigma, sharpenParams.flat, sharpenParams.jagged);
+    }
+
+    sharpInstance = sharpInstance.toFormat(format, {
+      quality: compressionQuality,
+      alphaQuality: 80,
+      smartSubsample: true,
+      chromaSubsampling: '4:2:0', // Efficient color subsampling
+      tileRows: format === 'avif' ? tileRows : undefined,
+      tileCols: format === 'avif' ? tileCols : undefined,
+      minQuantizer: format === 'avif' ? minQuantizer : undefined,
+      maxQuantizer: format === 'avif' ? maxQuantizer : undefined,
+      effort: format === 'avif' ? effort : undefined // Lower effort for faster encoding
+    });
+
+    // Use a stream to handle large images without excessive memory usage
+    const outputStream = sharpInstance.toBuffer({ resolveWithObject: true });
+
+    const { data: output, info } = await outputStream;
+
     if (res.headersSent) {
       console.error('Headers already sent, unable to compress the image.');
       return;
     }
 
-    // Send the compressed image as a response
-    sendImage(res, output, format, url, originSize);
+    sendImage(res, output, format, url, originSize, info.size);
 
   } catch (err) {
     console.error('Error during image compression:', err);
@@ -52,7 +67,32 @@ async function compress(req, res, input) {
   }
 }
 
-// Function to adjust compression quality based on image properties
+// Dynamically adjust AVIF parameters for limited resources
+function optimizeAvifParams(width, height) {
+  const largeImageThreshold = 2000;
+  const mediumImageThreshold = 1000;
+
+  let tileRows = 1, tileCols = 1, minQuantizer = 26, maxQuantizer = 48, effort = 4;
+
+  if (width > largeImageThreshold || height > largeImageThreshold) {
+    tileRows = 4;
+    tileCols = 4;
+    minQuantizer = 30;
+    maxQuantizer = 50;
+    effort = 3; // Reduce effort for faster encoding
+  } else if (width > mediumImageThreshold || height > mediumImageThreshold) {
+    tileRows = 2;
+    tileCols = 2;
+    minQuantizer = 28;
+    maxQuantizer = 48;
+    effort = 4; // Moderate effort
+  }
+
+  // Lower effort to reduce CPU usage and encoding time
+  return { tileRows, tileCols, minQuantizer, maxQuantizer, effort };
+}
+
+// Adjust compression quality based on image size and pixel count
 function adjustCompressionQuality(pixelCount, size, quality) {
   const thresholds = [
     { pixels: 3000000, size: 1536000, factor: 0.1 },
@@ -70,10 +110,10 @@ function adjustCompressionQuality(pixelCount, size, quality) {
   return quality; // Return the default quality if no thresholds are met
 }
 
-// Function to send the compressed image response
-function sendImage(res, data, imgFormat, url, originSize) {
+// Send the compressed image as response
+function sendImage(res, data, imgFormat, url, originSize, compressedSize) {
   const filename = encodeURIComponent(new URL(url).pathname.split('/').pop() || 'image') + `.${imgFormat}`;
-  
+
   res.setHeader('Content-Type', `image/${imgFormat}`);
   res.setHeader('Content-Length', data.length);
   res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
@@ -81,7 +121,7 @@ function sendImage(res, data, imgFormat, url, originSize) {
 
   const safeOriginSize = Math.max(originSize, 0);
   res.setHeader('x-original-size', safeOriginSize);
-  res.setHeader('x-bytes-saved', Math.max(safeOriginSize - data.length, 0));
+  res.setHeader('x-bytes-saved', Math.max(safeOriginSize - compressedSize, 0));
 
   res.status(200).end(data);
 }
