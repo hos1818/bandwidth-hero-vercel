@@ -14,6 +14,13 @@ const { URL } = require('node:url');
 const Bottleneck = require('bottleneck');
 const cloudscraper = require('cloudscraper');
 
+// Compression formats based on client support
+const compressionMethods = {
+    gzip: (data) => zlib.gzipSync(data),
+    br: (data) => zlib.brotliCompressSync(data),
+    deflate: (data) => zlib.deflateSync(data)
+};
+
 // Decompression utility function
 async function decompress(data, encoding) {
     const decompressors = {
@@ -162,7 +169,6 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
     });
 }
 
-
 // Proxy function to handle requests
 async function proxy(req, res) {
     const config = {
@@ -172,16 +178,11 @@ async function proxy(req, res) {
             ...pick(req.headers, ['cookie', 'referer']),
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/*,*/*;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Encoding': 'gzip, deflate, br',  // Allow gzip, deflate, and Brotli compression
             'Cache-Control': 'no-cache',
             'DNT': '1',
             'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
-            'Connection': 'keep-alive',  // Often required for persistent connections
-            'Pragma': 'no-cache',          // An additional header that can help in some cases
-            'Sec-Fetch-Mode': 'navigate',  // Useful for navigation requests
-            'Sec-Fetch-Site': 'same-origin',// Indicate the request's context
-            'Sec-Fetch-User': '?1',        // To indicate that this is a user-initiated request
-            via: '2.0 bandwidth-hero',
+            'Connection': 'keep-alive',
         },
         timeout: 5000,
         maxRedirects: 5,
@@ -209,12 +210,40 @@ async function proxy(req, res) {
         const contentEncoding = headers['content-encoding'];
         let decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
 
+        // Compression Optimization: Choose the best compression method based on Accept-Encoding header
+        const acceptedEncodings = req.headers['accept-encoding'] || '';
+        if (shouldCompress(req, decompressedData)) {
+            if (acceptedEncodings.includes('br')) {
+                decompressedData = compressionMethods.br(decompressedData); // Brotli compression
+                res.setHeader('Content-Encoding', 'br');
+            } else if (acceptedEncodings.includes('gzip')) {
+                decompressedData = compressionMethods.gzip(decompressedData); // gzip compression
+                res.setHeader('Content-Encoding', 'gzip');
+            } else if (acceptedEncodings.includes('deflate')) {
+                decompressedData = compressionMethods.deflate(decompressedData); // deflate compression
+                res.setHeader('Content-Encoding', 'deflate');
+            } else {
+                res.setHeader('Content-Encoding', 'identity'); // No compression
+            }
+        }
+
+        // Copy headers and send response
         copyHeaders(originResponse, res, {
             additionalExcludedHeaders: ['x-custom-header'],
             transformFunction: (key, value) => key === 'x-transform-header' ? value.toUpperCase() : value,
             overwriteExisting: false,
             mergeArrays: true
         });
+
+        // Security Enhancement: Add HTTPS enforcement
+        if (req.headers['x-forwarded-proto'] !== 'https') {
+            res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+            res.redirect(301, `https://${req.headers.host}${req.url}`);
+            return;
+        }
+
+        // Security Enhancement: Content Security Policy
+        res.setHeader('Content-Security-Policy', "default-src 'self'; img-src *; media-src *; script-src 'none'; object-src 'none';");
 
         // Set additional headers
         res.set('X-Proxy', 'Cloudflare Worker');
