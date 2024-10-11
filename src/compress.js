@@ -99,7 +99,7 @@ function optimizeAvifParams(width, height) {
 function adjustCompressionQuality(pixelCount, size, quality) {
   const thresholds = [
     { pixels: 3000000, size: 1536000, factor: 0.1 },
-    { pixels: 2000000, size: 1024000, factor: 5 },
+    { pixels: 2000000, size: 1024000, factor: 0.25 },
     { pixels: 1000000, size: 512000, factor: 0.5 },
     { pixels: 500000, size: 256000, factor: 0.75 }
   ];
