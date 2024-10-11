@@ -10,16 +10,8 @@ const bypass = require('./bypass');
 const copyHeaders = require('./copyHeaders');
 const http2 = require('node:http2');
 const https = require('node:https');
-const { URL } = require('node:url');
 const Bottleneck = require('bottleneck');
 const cloudscraper = require('cloudscraper');
-
-// Compression formats based on client support
-const compressionMethods = {
-    gzip: (data) => zlib.gzipSync(data),
-    br: (data) => zlib.brotliCompressSync(data),
-    deflate: (data) => zlib.deflateSync(data)
-};
 
 // Decompression utility function
 async function decompress(data, encoding) {
@@ -67,7 +59,7 @@ async function makeHttp2Request(config) {
         const req = client.request(headers);
         let data = [];
 
-        req.on('response', (headers) => {
+        req.on('response', (headers, flags) => {
             data = []; // Clear data on each new response
         });
         req.on('data', chunk => data.push(chunk));
@@ -88,9 +80,7 @@ async function makeRequest(config) {
 }
 
 // Enhanced cloudscraper handling function
-async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
-    const MAX_REDIRECTS = 5;  // Limit the number of redirects to prevent infinite loops
-
+async function makeCloudscraperRequest(config, retries = 3) {
     const ciphers = [
         'ECDHE-ECDSA-AES128-GCM-SHA256',
         'ECDHE-RSA-AES128-GCM-SHA256',
@@ -103,68 +93,33 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
     const agent = new https.Agent({
         ciphers,
         honorCipherOrder: true,
-        secureOptions: https.constants.SSL_OP_NO_TLSv1 | https.constants.SSL_OP_NO_TLSv1_1,
+        secureOptions: https.constants.SSL_OP_NO_TLSv1 | https.constants.SSL_OP_NO_TLSv1_1, // Disable older versions of TLS
         keepAlive: true,
     });
-
-    // Helper function for handling retries with exponential backoff
-    const retryRequest = async (delay) => {
-        console.warn(`Retrying in ${delay}ms...`);
-        return new Promise((resolve) => setTimeout(resolve, delay))
-            .then(() => makeCloudscraperRequest(config, retries - 1, redirectCount));
-    };
 
     return new Promise((resolve, reject) => {
         cloudscraper.get({
             uri: config.url.href,
             headers: config.headers,
             gzip: true,
-            encoding: null, // Get raw buffer data
+            encoding: null, // Get the raw buffer data
             cloudflareTimeout: 5000,
-            decodeEmails: true,
+            decodeEmails: true,   // Decodes Cloudflare email obfuscation
             agentOptions: {
-                httpsAgent: agent,
-                proxy: config.proxy || null,  // Bandwidth Hero proxy support
+                httpsAgent: agent
             },
-            timeout: config.timeout || 10000
-        }, async (error, response, body) => {
+            timeout: config.timeout || 10000  // Global timeout (10 seconds by default)
+        }, (error, response, body) => {
             if (error) {
                 if (retries > 0) {
-                    return resolve(await retryRequest(1000));  // Retry after 1 second
+                    console.warn(`Cloudscraper request failed. Retrying... Attempts left: ${retries}`);
+                    return resolve(makeCloudscraperRequest(config, retries - 1));  // Retry
                 }
-                console.error(`Cloudscraper failed: ${error.message}`);
+                console.error(`Cloudscraper failed after retries: ${error.message}`);
                 return reject(new Error('Cloudscraper Request Failed'));
+            } else {
+                resolve({ headers: response.headers, data: body });
             }
-
-            const { statusCode } = response;
-            
-            // Handle 403 Forbidden (Cloudflare protection)
-            if (statusCode === 403) {
-                if (retries > 0) {
-                    console.warn(`403 Forbidden. Retrying... Attempts left: ${retries}`);
-                    return resolve(await retryRequest(2000));  // Retry after 2 seconds
-                }
-                console.error('Cloudflare returned 403, maximum retries reached.');
-                return reject(new Error('Cloudscraper Request Blocked by Cloudflare'));
-            }
-
-            // Handle 302 Redirect
-            if (statusCode === 302 && redirectCount < MAX_REDIRECTS) {
-                const redirectUrl = response.headers.location;
-                if (redirectUrl) {
-                    console.info(`302 Redirected to: ${redirectUrl}`);
-                    config.url = new URL(redirectUrl);  // Follow the redirect
-                    return resolve(makeCloudscraperRequest(config, retries, redirectCount + 1));
-                }
-            }
-
-            // If too many redirects
-            if (redirectCount >= MAX_REDIRECTS) {
-                return reject(new Error('Too many redirects, aborting request.'));
-            }
-
-            // Successful request
-            resolve({ headers: response.headers, data: body });
         });
     });
 }
@@ -178,11 +133,16 @@ async function proxy(req, res) {
             ...pick(req.headers, ['cookie', 'referer']),
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/*,*/*;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',  // Allow gzip, deflate, and Brotli compression
+            'Accept-Encoding': 'gzip, deflate, br',
             'Cache-Control': 'no-cache',
             'DNT': '1',
             'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
-            'Connection': 'keep-alive',
+            'Connection': 'keep-alive',  // Often required for persistent connections
+            'Pragma': 'no-cache',          // An additional header that can help in some cases
+            'Sec-Fetch-Mode': 'navigate',  // Useful for navigation requests
+            'Sec-Fetch-Site': 'same-origin',// Indicate the request's context
+            'Sec-Fetch-User': '?1',        // To indicate that this is a user-initiated request
+            via: '2.0 bandwidth-hero',
         },
         timeout: 5000,
         maxRedirects: 5,
@@ -210,40 +170,7 @@ async function proxy(req, res) {
         const contentEncoding = headers['content-encoding'];
         let decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
 
-        // Compression Optimization: Choose the best compression method based on Accept-Encoding header
-        const acceptedEncodings = req.headers['accept-encoding'] || '';
-        if (shouldCompress(req, decompressedData)) {
-            if (acceptedEncodings.includes('br')) {
-                decompressedData = compressionMethods.br(decompressedData); // Brotli compression
-                res.setHeader('Content-Encoding', 'br');
-            } else if (acceptedEncodings.includes('gzip')) {
-                decompressedData = compressionMethods.gzip(decompressedData); // gzip compression
-                res.setHeader('Content-Encoding', 'gzip');
-            } else if (acceptedEncodings.includes('deflate')) {
-                decompressedData = compressionMethods.deflate(decompressedData); // deflate compression
-                res.setHeader('Content-Encoding', 'deflate');
-            } else {
-                res.setHeader('Content-Encoding', 'identity'); // No compression
-            }
-        }
-
-        // Copy headers and send response
-        copyHeaders(originResponse, res, {
-            additionalExcludedHeaders: ['x-custom-header'],
-            transformFunction: (key, value) => key === 'x-transform-header' ? value.toUpperCase() : value,
-            overwriteExisting: false,
-            mergeArrays: true
-        });
-
-        // Security Enhancement: Add HTTPS enforcement
-        if (req.headers['x-forwarded-proto'] !== 'https') {
-            res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
-            res.redirect(301, `https://${req.headers.host}${req.url}`);
-            return;
-        }
-
-        // Security Enhancement: Content Security Policy
-        res.setHeader('Content-Security-Policy', "default-src 'self'; img-src *; media-src *; script-src 'none'; object-src 'none';");
+        copyHeaders(originResponse, res);
 
         // Set additional headers
         res.set('X-Proxy', 'Cloudflare Worker');
