@@ -14,25 +14,25 @@ async function compress(req, res, input) {
     const format = req.params.webp ? 'avif' : 'jpeg';
     const { quality, grayscale, originSize, url } = req.params;
 
-    // Get image metadata to dynamically adjust parameters
     const metadata = await sharp(input).metadata();
     const { width, height } = metadata;
     const pixelCount = width * height;
 
-    // Adjust compression quality based on image size
     const compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, quality);
 
-    // Optimize AVIF parameters based on image size and available resources
     const { tileRows, tileCols, minQuantizer, maxQuantizer, effort } = optimizeAvifParams(width, height);
 
-    // Only apply grayscale or sharpening if requested to save resources
     let sharpInstance = sharp(input);
 
     if (grayscale) {
       sharpInstance = sharpInstance.grayscale();
     }
 
-    // Conditionally apply sharpening only for certain image types or sizes
+    // Apply artifact removal before sharpening
+    if (format === 'jpeg' || format === 'avif') {
+      sharpInstance = applyArtifactReduction(sharpInstance, pixelCount);
+    }
+
     if (pixelCount > 500000) { // Apply sharpening for large or detailed images
       sharpInstance = sharpInstance.sharpen(sharpenParams.sigma, sharpenParams.flat, sharpenParams.jagged);
     }
@@ -41,17 +41,15 @@ async function compress(req, res, input) {
       quality: compressionQuality,
       alphaQuality: 80,
       smartSubsample: true,
-      chromaSubsampling: '4:2:0', // Efficient color subsampling
+      chromaSubsampling: '4:2:0',
       tileRows: format === 'avif' ? tileRows : undefined,
       tileCols: format === 'avif' ? tileCols : undefined,
       minQuantizer: format === 'avif' ? minQuantizer : undefined,
       maxQuantizer: format === 'avif' ? maxQuantizer : undefined,
-      effort: format === 'avif' ? effort : undefined // Lower effort for faster encoding
+      effort: format === 'avif' ? effort : undefined
     });
 
-    // Use a stream to handle large images without excessive memory usage
     const outputStream = sharpInstance.toBuffer({ resolveWithObject: true });
-
     const { data: output, info } = await outputStream;
 
     if (res.headersSent) {
@@ -79,16 +77,15 @@ function optimizeAvifParams(width, height) {
     tileCols = 4;
     minQuantizer = 30;
     maxQuantizer = 50;
-    effort = 3; // Reduce effort for faster encoding
+    effort = 3;
   } else if (width > mediumImageThreshold || height > mediumImageThreshold) {
     tileRows = 2;
     tileCols = 2;
     minQuantizer = 28;
     maxQuantizer = 48;
-    effort = 4; // Moderate effort
+    effort = 4;
   }
 
-  // Lower effort to reduce CPU usage and encoding time
   return { tileRows, tileCols, minQuantizer, maxQuantizer, effort };
 }
 
@@ -107,7 +104,20 @@ function adjustCompressionQuality(pixelCount, size, quality) {
     }
   }
 
-  return quality; // Return the default quality if no thresholds are met
+  return quality;
+}
+
+// Apply artifact reduction before sharpening and compression
+function applyArtifactReduction(sharpInstance, pixelCount) {
+  if (pixelCount > 1000000) { // Apply denoise only for large images
+    sharpInstance = sharpInstance.modulate({
+      saturation: 0.9 // Slightly reduce color noise
+    }).blur(0.3); // Light blur to reduce compression block artifacts
+  } else {
+    sharpInstance = sharpInstance.blur(0.2); // Lower blur for smaller images
+  }
+
+  return sharpInstance;
 }
 
 // Send the compressed image as response
