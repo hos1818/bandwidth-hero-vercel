@@ -1,25 +1,19 @@
 const { URL } = require('url');
 const stream = require('node:stream');
-const path = require('path'); // Use path module to handle file path securely.
 
-/**
- * Forwards a buffer to the response without additional processing.
- * 
- * @param {Object} req - The request object, including parameters.
- * @param {Object} res - The response object for sending the data.
- * @param {Buffer} buffer - The buffer containing the content to be forwarded.
- */
 function forwardWithoutProcessing(req, res, buffer) {
-  // Validate the request, response, and buffer.
+  // Validate the request and response objects.
   if (!req || !res) {
     throw new Error("Request or Response objects are missing or invalid");
   }
+
+  // Check that the buffer exists and is valid.
   if (!Buffer.isBuffer(buffer)) {
     console.error("Invalid or missing buffer");
     return res.status(500).send("Invalid or missing buffer");
   }
 
-  // Set appropriate content type and security headers.
+  // Set headers to preserve content type and enhance security.
   if (req.params.originType) {
     res.setHeader('Content-Type', req.params.originType); // Ensure correct content type
   }
@@ -32,28 +26,21 @@ function forwardWithoutProcessing(req, res, buffer) {
   // Set the content length for proper response size handling.
   res.setHeader('content-length', buffer.length);
 
-  // Extract and sanitize the filename from the URL's path.
-  let filename;
-  try {
-    const urlPath = new URL(req.params.url).pathname;
-    filename = decodeURIComponent(path.basename(urlPath)); // Safely decode and sanitize the filename.
-  } catch (error) {
-    console.error(`Error extracting filename from URL: ${req.params.url} - ${error.message}`);
-    return res.status(400).send("Bad Request: Invalid URL");
-  }
-
-  // Set Content-Disposition header, default to "inline".
+  // Extract and set the filename from the URL's path for Content-Disposition.
+  const urlPath = new URL(req.params.url).pathname;
+  const filename = decodeURIComponent(urlPath.split('/').pop()); // Safely decode the filename.
+  
+  // Only set Content-Disposition header if a filename is available.
   if (filename) {
-    const dispositionType = req.params.originType && req.params.originType.startsWith('image') ? 'inline' : 'attachment';
-    res.setHeader('Content-Disposition', `${dispositionType}; filename="${filename}"`);
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
   }
 
-  // Stream the buffer to the response to efficiently handle large data.
+  // Stream the buffer to the response to avoid high memory usage for large files.
   const bufferStream = new stream.PassThrough();
   bufferStream.end(buffer);
-  bufferStream.pipe(res);
+  bufferStream.pipe(res); // Pipes the buffer stream to the response for efficient data handling.
 
-  // Log the forward action for monitoring purposes.
+  // Optionally log the forward action for monitoring purposes.
   console.log(`Forwarded without processing: ${req.params.url}`);
 }
 
