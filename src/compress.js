@@ -118,7 +118,7 @@ function applyArtifactReduction(sharpInstance, pixelCount) {
   if (pixelCount > 1000000) { // Apply denoise only for large images
     sharpInstance = sharpInstance.modulate({
       saturation: 0.9 // Slightly reduce color noise
-    }).blur(0.3); // Light blur to reduce compression block artifacts
+    }).blur(0.4); // Light blur to reduce compression block artifacts
   } else {
     sharpInstance = sharpInstance.blur(0.3); // Lower blur for smaller images
   }
