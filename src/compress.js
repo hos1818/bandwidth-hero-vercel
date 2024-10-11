@@ -84,12 +84,6 @@ function optimizeAvifParams(width, height) {
     minQuantizer = 28;
     maxQuantizer = 48;
     effort = 4;
-  } else {
-    tileRows = 2;
-    tileCols = 2;
-    minQuantizer = 28;
-    maxQuantizer = 48;
-    effort = 4;
   }
 
   return { tileRows, tileCols, minQuantizer, maxQuantizer, effort };
