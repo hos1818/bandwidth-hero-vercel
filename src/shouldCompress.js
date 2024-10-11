@@ -1,7 +1,7 @@
 const isAnimated = require('is-animated');
 
 // Define default compression size thresholds and allow overrides through environment variables.
-const DEFAULT_MIN_COMPRESS_LENGTH = 2048;
+const DEFAULT_MIN_COMPRESS_LENGTH = 512;
 const MIN_COMPRESS_LENGTH = parseInt(process.env.MIN_COMPRESS_LENGTH, 10) || DEFAULT_MIN_COMPRESS_LENGTH;
 const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 50; // ~100KB for PNG/GIFs
 const APNG_THRESH_LENGTH = MIN_COMPRESS_LENGTH * 100; // ~200KB for animated PNGs
