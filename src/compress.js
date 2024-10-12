@@ -3,9 +3,9 @@ const redirect = require('./redirect');
 const { URL } = require('url');
 
 const sharpenParams = {
-  sigma: 1.0, // Controls the radius of the sharpening
-  flat: 1.0,  // Adjusts sharpening in flat areas
-  jagged: 0.5 // Adjusts sharpening in areas with jagged edges
+  sigma: 1.0,
+  flat: 1.0,
+  jagged: 0.5
 };
 
 // Optimized compress function for limited resources
@@ -15,38 +15,47 @@ async function compress(req, res, input) {
     const { quality, grayscale, originSize, url } = req.params;
 
     const metadata = await sharp(input).metadata();
-    const { width, height } = metadata;
+    const { width, height, pages } = metadata;
     const pixelCount = width * height;
+
+    // Check if the image is animated
+    const isAnimated = pages && pages > 1;
+
+    // If animated, force WebP format
+    const outputFormat = isAnimated ? 'webp' : format;
 
     const compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, quality);
 
     const { tileRows, tileCols, minQuantizer, maxQuantizer, effort } = optimizeAvifParams(width, height);
 
-    let sharpInstance = sharp(input);
+    let sharpInstance = sharp(input, { animated: isAnimated });
 
     if (grayscale) {
       sharpInstance = sharpInstance.grayscale();
     }
 
-    // Apply artifact removal before sharpening
-    if (format === 'jpeg' || format === 'avif') {
-      sharpInstance = applyArtifactReduction(sharpInstance, pixelCount);
+    if (!isAnimated) {
+      // Apply artifact removal for static images before sharpening
+      if (outputFormat === 'jpeg' || outputFormat === 'avif') {
+        sharpInstance = applyArtifactReduction(sharpInstance, pixelCount);
+      }
+
+      if (pixelCount > 500000) { // Apply sharpening for large or detailed images
+        sharpInstance = sharpInstance.sharpen(sharpenParams.sigma, sharpenParams.flat, sharpenParams.jagged);
+      }
     }
 
-    if (pixelCount > 500000) { // Apply sharpening for large or detailed images
-      sharpInstance = sharpInstance.sharpen(sharpenParams.sigma, sharpenParams.flat, sharpenParams.jagged);
-    }
-
-    sharpInstance = sharpInstance.toFormat(format, {
+    sharpInstance = sharpInstance.toFormat(outputFormat, {
       quality: compressionQuality,
       alphaQuality: 80,
       smartSubsample: true,
       chromaSubsampling: '4:2:0',
-      tileRows: format === 'avif' ? tileRows : undefined,
-      tileCols: format === 'avif' ? tileCols : undefined,
-      minQuantizer: format === 'avif' ? minQuantizer : undefined,
-      maxQuantizer: format === 'avif' ? maxQuantizer : undefined,
-      effort: format === 'avif' ? effort : undefined
+      tileRows: outputFormat === 'avif' ? tileRows : undefined,
+      tileCols: outputFormat === 'avif' ? tileCols : undefined,
+      minQuantizer: outputFormat === 'avif' ? minQuantizer : undefined,
+      maxQuantizer: outputFormat === 'avif' ? maxQuantizer : undefined,
+      effort: outputFormat === 'avif' ? effort : undefined,
+      loop: isAnimated ? 0 : undefined, // For animated WebP, set loop
     });
 
     const outputStream = sharpInstance.toBuffer({ resolveWithObject: true });
@@ -57,7 +66,7 @@ async function compress(req, res, input) {
       return;
     }
 
-    sendImage(res, output, format, url, originSize, info.size);
+    sendImage(res, output, outputFormat, url, originSize, info.size);
 
   } catch (err) {
     console.error('Error during image compression:', err);
