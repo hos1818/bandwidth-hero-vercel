@@ -28,7 +28,7 @@ ENVIRONMENT_VARIABLES
 `node ./express-wrapper.js`
 
 ## Note - VIP
-#increase Function Max Duration to 60 - Don't forget to press save
+### increase Function Max Duration to 60 - Don't forget to press save
 
 ![image](https://github.com/user-attachments/assets/2d6fe1dd-2315-4020-8135-3912cfc02e5f)
 
