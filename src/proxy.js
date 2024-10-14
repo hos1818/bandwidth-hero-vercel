@@ -85,16 +85,60 @@ async function makeHttp2Request(config) {
 
 // Create a limiter with a maximum of 1 request every 2 seconds
 const limiter = new Bottleneck({
-    minTime: 2000, // Minimum time between requests in milliseconds
+    maxConcurrent: 5,  // Limit to 5 concurrent requests
+    minTime: 2000      // Minimum time of 2 seconds between requests
 });
 
 async function makeRequest(config) {
     return limiter.schedule(() => axios(config));
 }
 
+
+// Caching logic (simple in-memory cache, could be replaced with Redis or similar)
+const requestCache = new Map();
+
+// Circuit breaker settings
+const circuitBreaker = {
+    failureThreshold: 5,  // Number of failures before opening the circuit
+    resetTimeout: 60000,  // Time in ms to wait before retrying after the circuit opens
+    failureCount: 0,
+    lastFailureTime: null,
+    isOpen() {
+        const now = Date.now();
+        if (this.failureCount >= this.failureThreshold && now - this.lastFailureTime < this.resetTimeout) {
+            return true;  // Circuit is open, stop making requests
+        }
+        return false;  // Circuit is closed, allow requests
+    },
+    recordFailure() {
+        this.failureCount++;
+        this.lastFailureTime = Date.now();
+    },
+    reset() {
+        this.failureCount = 0;
+        this.lastFailureTime = null;
+    }
+};
+
+// Safely handle decompression
+function decompressBody(body, encoding) {
+    switch (encoding) {
+        case 'br':
+            return zlib.brotliDecompressSync(body);
+        case 'gzip':
+            return zlib.gunzipSync(body);
+        case 'deflate':
+            return zlib.inflateSync(body);
+        default:
+            return body;  // No compression or unknown encoding
+    }
+}
+
 // Enhanced cloudscraper handling function
 async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
-    const MAX_REDIRECTS = 5;  // Prevent infinite loops
+    const MAX_REDIRECTS = 5;
+    const MAX_RETRIES = 3;
+
     const ciphers = [
         'ECDHE-ECDSA-AES128-GCM-SHA256',
         'ECDHE-RSA-AES128-GCM-SHA256',
@@ -107,17 +151,33 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
     const agent = new https.Agent({
         ciphers,
         honorCipherOrder: true,
-        secureOptions: SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1,
+        secureOptions: https.constants.SSL_OP_NO_TLSv1 | https.constants.SSL_OP_NO_TLSv1_1,
         keepAlive: true,
     });
 
-    const retryRequest = async (delay) => {
-        console.warn(`Retrying in ${delay}ms...`);
-        return new Promise((resolve) => setTimeout(resolve, delay))
+    // Exponential backoff with jitter
+    const retryRequest = async (delay, retryAttempt) => {
+        const jitter = Math.random() * 1000;
+        const backoffTime = delay * Math.pow(2, retryAttempt) + jitter;
+        console.warn(`Retrying in ${backoffTime.toFixed(0)}ms...`);
+        return new Promise((resolve) => setTimeout(resolve, backoffTime))
             .then(() => makeCloudscraperRequest(config, retries - 1, redirectCount));
     };
 
-    return new Promise((resolve, reject) => {
+    // Check circuit breaker
+    if (circuitBreaker.isOpen()) {
+        console.error('Circuit is open, aborting request.');
+        throw new Error('Circuit breaker is open, aborting requests.');
+    }
+
+    // Caching logic: check cache first
+    const cacheKey = config.url.href;
+    if (requestCache.has(cacheKey)) {
+        console.log('Serving response from cache');
+        return requestCache.get(cacheKey);
+    }
+
+    return limiter.schedule(() => new Promise((resolve, reject) => {
         cloudscraper.get({
             uri: config.url.href,
             headers: config.headers,
@@ -130,8 +190,9 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
             timeout: config.timeout || 10000
         }, async (error, response, body) => {
             if (error) {
+                circuitBreaker.recordFailure();  // Record failure for circuit breaker
                 if (retries > 0) {
-                    return resolve(await retryRequest(1000));
+                    return resolve(await retryRequest(1000, MAX_RETRIES - retries));  // Retry with backoff
                 }
                 console.error(`Cloudscraper failed: ${error.message}`);
                 return reject(new Error('Cloudscraper Request Failed'));
@@ -139,17 +200,17 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
 
             const { statusCode } = response;
             
-            // Check if the response is a challenge
+            // Handle Cloudflare challenges
             if (response.headers['cf-mitigated']) {
                 console.warn('Cloudflare challenge detected, retrying with cloudscraper...');
-                return resolve(await retryRequest(2000));
+                return resolve(await retryRequest(2000, MAX_RETRIES - retries));
             }
 
-            // Handle Cloudflare protection (403) or retries
+            // Handle 403 Forbidden or Cloudflare retries
             if (statusCode === 403) {
                 if (retries > 0) {
                     console.warn(`403 Forbidden. Retrying... Attempts left: ${retries}`);
-                    return resolve(await retryRequest(2000));
+                    return resolve(await retryRequest(2000, MAX_RETRIES - retries));
                 }
                 console.error('Cloudflare returned 403, maximum retries reached.');
                 return reject(new Error('Cloudscraper Request Blocked by Cloudflare'));
@@ -170,23 +231,26 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
                 return reject(new Error('Too many redirects, aborting request.'));
             }
 
-            // Check content encoding and decompress if necessary
-            const contentEncoding = response.headers['content-encoding'];
-            let decompressedBody = body;
-
-            if (contentEncoding === 'br') {
-                try {
-                    decompressedBody = zlib.brotliDecompressSync(body);
-                } catch (decompressionError) {
-                    console.error('Brotli decompression failed:', decompressionError);
-                    return reject(new Error('Decompression failed'));
-                }
+            // Handle decompression
+            let decompressedBody;
+            try {
+                const contentEncoding = response.headers['content-encoding'];
+                decompressedBody = decompressBody(body, contentEncoding);
+            } catch (decompressionError) {
+                console.error('Decompression failed:', decompressionError);
+                return reject(new Error('Decompression failed'));
             }
+
+            // Cache the successful response
+            requestCache.set(cacheKey, { headers: response.headers, data: decompressedBody });
+
+            // Reset the circuit breaker on success
+            circuitBreaker.reset();
 
             // Successful request
             resolve({ headers: response.headers, data: decompressedBody });
         });
-    });
+    }));
 }
 
 // Proxy function to handle requests
