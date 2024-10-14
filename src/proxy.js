@@ -14,6 +14,11 @@ const { URL } = require('node:url');
 const Bottleneck = require('bottleneck');
 const cloudscraper = require('cloudscraper');
 
+
+// Safely access SSL options with a fallback for older Node.js versions
+const SSL_OP_NO_TLSv1 = https.constants ? https.constants.SSL_OP_NO_TLSv1 : 0x04000000;  // Fallback value
+const SSL_OP_NO_TLSv1_1 = https.constants ? https.constants.SSL_OP_NO_TLSv1_1 : 0x10000000;  // Fallback value
+
 // Compression formats based on client support
 const compressionMethods = {
     gzip: (data) => zlib.gzipSync(data),
@@ -103,7 +108,7 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
     const agent = new https.Agent({
         ciphers,
         honorCipherOrder: true,
-        secureOptions: https.constants.SSL_OP_NO_TLSv1 | https.constants.SSL_OP_NO_TLSv1_1,
+        secureOptions: SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1, // Use fallback constants if undefined
         keepAlive: true,
     });
 
