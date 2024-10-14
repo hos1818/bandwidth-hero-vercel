@@ -94,8 +94,7 @@ async function makeRequest(config) {
 
 // Enhanced cloudscraper handling function
 async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
-    const MAX_REDIRECTS = 5;  // Limit the number of redirects to prevent infinite loops
-
+    const MAX_REDIRECTS = 5;  // Prevent infinite loops
     const ciphers = [
         'ECDHE-ECDSA-AES128-GCM-SHA256',
         'ECDHE-RSA-AES128-GCM-SHA256',
@@ -108,11 +107,10 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
     const agent = new https.Agent({
         ciphers,
         honorCipherOrder: true,
-        secureOptions: SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1, // Use fallback constants if undefined
+        secureOptions: SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1,
         keepAlive: true,
     });
 
-    // Helper function for handling retries with exponential backoff
     const retryRequest = async (delay) => {
         console.warn(`Retrying in ${delay}ms...`);
         return new Promise((resolve) => setTimeout(resolve, delay))
@@ -124,18 +122,16 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
             uri: config.url.href,
             headers: config.headers,
             gzip: true,
-            encoding: null, // Get raw buffer data
-            cloudflareTimeout: 5000,
-            decodeEmails: true,
+            encoding: null,  // Raw buffer data
             agentOptions: {
                 httpsAgent: agent,
-                proxy: config.proxy || null,  // Bandwidth Hero proxy support
+                proxy: config.proxy || null,
             },
             timeout: config.timeout || 10000
         }, async (error, response, body) => {
             if (error) {
                 if (retries > 0) {
-                    return resolve(await retryRequest(1000));  // Retry after 1 second
+                    return resolve(await retryRequest(1000));
                 }
                 console.error(`Cloudscraper failed: ${error.message}`);
                 return reject(new Error('Cloudscraper Request Failed'));
@@ -143,17 +139,23 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
 
             const { statusCode } = response;
             
-            // Handle 403 Forbidden (Cloudflare protection)
+            // Check if the response is a challenge
+            if (response.headers['cf-mitigated']) {
+                console.warn('Cloudflare challenge detected, retrying with cloudscraper...');
+                return resolve(await retryRequest(2000));
+            }
+
+            // Handle Cloudflare protection (403) or retries
             if (statusCode === 403) {
                 if (retries > 0) {
                     console.warn(`403 Forbidden. Retrying... Attempts left: ${retries}`);
-                    return resolve(await retryRequest(2000));  // Retry after 2 seconds
+                    return resolve(await retryRequest(2000));
                 }
                 console.error('Cloudflare returned 403, maximum retries reached.');
                 return reject(new Error('Cloudscraper Request Blocked by Cloudflare'));
             }
 
-            // Handle 302 Redirect
+            // Handle redirects (302)
             if (statusCode === 302 && redirectCount < MAX_REDIRECTS) {
                 const redirectUrl = response.headers.location;
                 if (redirectUrl) {
@@ -163,13 +165,26 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
                 }
             }
 
-            // If too many redirects
+            // Handle too many redirects
             if (redirectCount >= MAX_REDIRECTS) {
                 return reject(new Error('Too many redirects, aborting request.'));
             }
 
+            // Check content encoding and decompress if necessary
+            const contentEncoding = response.headers['content-encoding'];
+            let decompressedBody = body;
+
+            if (contentEncoding === 'br') {
+                try {
+                    decompressedBody = zlib.brotliDecompressSync(body);
+                } catch (decompressionError) {
+                    console.error('Brotli decompression failed:', decompressionError);
+                    return reject(new Error('Decompression failed'));
+                }
+            }
+
             // Successful request
-            resolve({ headers: response.headers, data: body });
+            resolve({ headers: response.headers, data: decompressedBody });
         });
     });
 }
