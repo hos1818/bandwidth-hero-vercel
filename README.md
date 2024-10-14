@@ -30,6 +30,6 @@ ENVIRONMENT_VARIABLES
 ## Note - VIP
 ### increase Function Max Duration to 60 - Don't forget to press save
 
-![image](https://github.com/user-attachments/assets/2d6fe1dd-2315-4020-8135-3912cfc02e5f)
+![image](https://github.com/user-attachments/assets/347cdf4c-b42b-4ad4-839f-8fd3aa63ef10)
 
 because the the conversion to avif takes more time than the default value of Function Max Duration of vercel
