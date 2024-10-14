@@ -215,22 +215,28 @@ async function proxy(req, res) {
         const contentEncoding = headers['content-encoding'];
         let decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
 
+        // Validate decompressedData
+        if (!decompressedData) {
+            throw new Error('Decompression failed or no data received');
+        }
+
         // Compression Optimization: Choose the best compression method based on Accept-Encoding header
         const acceptedEncodings = req.headers['accept-encoding'] || '';
         if (shouldCompress(req, decompressedData)) {
             if (acceptedEncodings.includes('br')) {
-                decompressedData = compressionMethods.br(decompressedData); // Brotli compression
+                decompressedData = compressionMethods.br(decompressedData);
                 res.setHeader('Content-Encoding', 'br');
             } else if (acceptedEncodings.includes('gzip')) {
-                decompressedData = compressionMethods.gzip(decompressedData); // gzip compression
+                decompressedData = compressionMethods.gzip(decompressedData);
                 res.setHeader('Content-Encoding', 'gzip');
             } else if (acceptedEncodings.includes('deflate')) {
-                decompressedData = compressionMethods.deflate(decompressedData); // deflate compression
+                decompressedData = compressionMethods.deflate(decompressedData);
                 res.setHeader('Content-Encoding', 'deflate');
             } else {
-                res.setHeader('Content-Encoding', 'identity'); // No compression
+                res.setHeader('Content-Encoding', 'identity');
             }
         }
+
 
         // Copy headers and send response
         copyHeaders(originResponse, res, {
