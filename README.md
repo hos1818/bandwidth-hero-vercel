@@ -26,3 +26,9 @@ ENVIRONMENT_VARIABLES
 
 ## Development
 `node ./express-wrapper.js`
+
+## Note - VIP
+increase Function Max Duration to 60
+![image](https://github.com/user-attachments/assets/2d6fe1dd-2315-4020-8135-3912cfc02e5f)
+
+because the the conversion to avif takes more time than the default value of Function Max Duration of vercel
