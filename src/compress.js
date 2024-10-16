@@ -100,34 +100,70 @@ function optimizeAvifParams(width, height) {
 
 // Adjust compression quality based on image size and pixel count
 function adjustCompressionQuality(pixelCount, size, quality) {
-  const thresholds = [
-    { pixels: 3000000, size: 1536000, factor: 0.1 },
-    { pixels: 2000000, size: 1024000, factor: 0.25 },
-    { pixels: 1000000, size: 512000, factor: 0.5 },
-    { pixels: 500000, size: 256000, factor: 0.75 }
-  ];
+  // Constants to tweak the curve behavior
+  const pixelFactor = 1.5;   // Higher values compress large images more aggressively
+  const sizeFactor = 0.002;  // Affects how sensitive compression is to size changes
+  const baseQuality = Math.min(quality, 100); // Ensure quality doesn't exceed 100
 
-  for (let threshold of thresholds) {
-    if (pixelCount > threshold.pixels && size > threshold.size) {
-      return Math.ceil(quality * threshold.factor);
-    }
-  }
+  // Normalized pixel size factor with logarithmic scaling for smoother quality adjustments
+  const pixelSizeScale = Math.log10(Math.max(pixelCount / 1e6, 1));  // Normalizes to ~1 for small images, scales up for larger
 
-  return quality;
+  // Calculate a scaling factor based on size
+  const sizeScale = Math.log2(Math.max(size / 1e6, 1)); // Normalizes based on file size, logarithmic progression
+
+  // Dynamic quality adjustment with a smooth, continuous function
+  let adjustedQuality = baseQuality - (pixelSizeScale * pixelFactor + sizeScale * sizeFactor) * baseQuality;
+
+  // Ensure that quality doesn't drop below a minimum threshold (e.g., 10)
+  adjustedQuality = Math.max(adjustedQuality, 10);
+
+  return Math.ceil(adjustedQuality);
 }
 
 // Apply artifact reduction before sharpening and compression
 function applyArtifactReduction(sharpInstance, pixelCount) {
-  if (pixelCount > 1000000) { // Apply denoise only for large images
-    sharpInstance = sharpInstance.modulate({
-      saturation: 0.9 // Slightly reduce color noise
-    }).blur(0.4); // Light blur to reduce compression block artifacts
+  // Constants for different thresholds (in pixels)
+  const largeImageThreshold = 3000000; // 3MP
+  const mediumImageThreshold = 1000000; // 1MP
+  const smallImageThreshold = 500000; // 0.5MP
+
+  // Set adaptive parameters
+  let blurRadius = 0.3; // Initial minimum blur
+  let denoiseStrength = 0.1; // Light default denoise
+  let saturationReduction = 1.0; // No desaturation by default
+
+  // Dynamic adjustment of blur and denoise based on pixel count
+  if (pixelCount > largeImageThreshold) {
+    // For very large images, increase blur and denoise
+    blurRadius = 10; // Strong blur but within reasonable range
+    denoiseStrength = 0.4; // Stronger denoise
+    saturationReduction = 0.85; // Slight desaturation to reduce color noise
+  } else if (pixelCount > mediumImageThreshold) {
+    // For medium-sized images
+    blurRadius = 5; // Moderate blur
+    denoiseStrength = 0.25; // Moderate denoise
+    saturationReduction = 0.9; // Mild desaturation
+  } else if (pixelCount > smallImageThreshold) {
+    // For small images
+    blurRadius = 1; // Mild blur
+    denoiseStrength = 0.15; // Lighter denoise
+    saturationReduction = 0.95; // Minimal desaturation
   } else {
-    sharpInstance = sharpInstance.blur(0.3); // Lower blur for smaller images
+    // Ensure blurRadius never falls below 0.3
+    blurRadius = Math.max(blurRadius, 0.3);
   }
+
+  // Apply artifact reduction
+  sharpInstance = sharpInstance
+    .modulate({
+      saturation: saturationReduction // Adjust saturation for color noise
+    })
+    .blur(blurRadius) // Apply adaptive blur, within 0.3 to 1000 range
+    .sharpen({ sigma: denoiseStrength, m1: 1, m2: 2 }); // Edge-preserving sharpening
 
   return sharpInstance;
 }
+
 
 // Send the compressed image as response
 function sendImage(res, data, imgFormat, url, originSize, compressedSize) {
