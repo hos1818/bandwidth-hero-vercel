@@ -115,7 +115,7 @@ function adjustCompressionQuality(pixelCount, size, quality) {
   let adjustedQuality = baseQuality - (pixelSizeScale * pixelFactor + sizeScale * sizeFactor) * baseQuality;
 
   // Ensure that quality doesn't drop below a minimum threshold (e.g., 10)
-  adjustedQuality = Math.max(adjustedQuality, 10);
+  adjustedQuality = Math.max(adjustedQuality, 40);
 
   return Math.ceil(adjustedQuality);
 }
