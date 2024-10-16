@@ -122,13 +122,46 @@ function adjustCompressionQuality(pixelCount, size, quality) {
 
 // Apply artifact reduction before sharpening and compression
 function applyArtifactReduction(sharpInstance, pixelCount) {
-  if (pixelCount > 1000000) { // Apply denoise only for large images
-    sharpInstance = sharpInstance.modulate({
-      saturation: 0.9 // Slightly reduce color noise
-    }).blur(0.4); // Light blur to reduce compression block artifacts
-  } else {
-    sharpInstance = sharpInstance.blur(0.3); // Lower blur for smaller images
+  // Constants for different thresholds (in pixels)
+  const largeImageThreshold = 3000000; // 3MP
+  const mediumImageThreshold = 1000000; // 1MP
+  const smallImageThreshold = 500000; // 0.5MP
+
+  // Set adaptive parameters
+  let blurRadius = 0.3; // Minimal blur to prevent over-softening
+  let denoiseStrength = 0.1; // Default light denoise
+  let sharpenSigma = 0.5; // Light sharpening to enhance edges
+  let saturationReduction = 1.0; // No desaturation by default
+
+  // Dynamic adjustment of sharpening and light blur based on pixel count
+  if (pixelCount > largeImageThreshold) {
+    // For very large images, apply stronger sharpening but minimal blur
+    blurRadius = 0.4; // Very light blur
+    denoiseStrength = 0.15; // Moderate denoise to reduce compression artifacts
+    sharpenSigma = 0.8; // Stronger sharpening
+    saturationReduction = 0.85; // Mild desaturation to reduce color noise
+  } else if (pixelCount > mediumImageThreshold) {
+    // For medium-sized images, apply light blur and moderate sharpening
+    blurRadius = 0.35; // Light blur, prevents over-softening
+    denoiseStrength = 0.12; // Moderate denoise
+    sharpenSigma = 0.6; // Moderate sharpening
+    saturationReduction = 0.9; // Mild desaturation
+  } else if (pixelCount > smallImageThreshold) {
+    // For smaller images, use minimal blur and light sharpening
+    blurRadius = 0.3; // Minimal blur for small images
+    denoiseStrength = 0.1; // Light denoise
+    sharpenSigma = 0.5; // Light sharpening
+    saturationReduction = 0.95; // Minimal desaturation
   }
+
+  // Apply light blur, denoise, and sharpening with edge preservation
+  sharpInstance = sharpInstance
+    .modulate({
+      saturation: saturationReduction // Adjust saturation for color noise
+    })
+    .blur(blurRadius) // Apply adaptive blur (conservatively small)
+    .sharpen(sharpenSigma) // Apply sharpening with mild sigma
+    .gamma(); // Optional: enhance contrast slightly to improve visual sharpness
 
   return sharpInstance;
 }
