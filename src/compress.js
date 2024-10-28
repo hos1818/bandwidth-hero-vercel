@@ -2,11 +2,7 @@ const sharp = require('sharp');
 const redirect = require('./redirect');
 const { URL } = require('url');
 
-const sharpenParams = {
-  sigma: 1.0,
-  flat: 1.0,
-  jagged: 0.5
-};
+const sharpenParams = { sigma: 1.0, flat: 1.0, jagged: 0.5 };
 
 // Optimized compress function for limited resources
 async function compress(req, res, input) {
@@ -15,32 +11,25 @@ async function compress(req, res, input) {
     const { quality, grayscale, originSize, url } = req.params;
 
     const metadata = await sharp(input).metadata();
-    const { width, height, pages } = metadata;
+    const { width, height, pages, size } = metadata;
     const pixelCount = width * height;
 
-    // Check if the image is animated
+    // Determine animation and format
     const isAnimated = pages && pages > 1;
-
-    // If animated, force WebP format
     const outputFormat = isAnimated ? 'webp' : format;
 
-    const compressionQuality = adjustCompressionQuality(pixelCount, metadata.size, quality);
-
+    const compressionQuality = adjustCompressionQuality(pixelCount, size, quality);
     const { tileRows, tileCols, minQuantizer, maxQuantizer, effort } = optimizeAvifParams(width, height);
 
     let sharpInstance = sharp(input, { animated: isAnimated });
 
-    if (grayscale) {
-      sharpInstance = sharpInstance.grayscale();
-    }
+    if (grayscale) sharpInstance = sharpInstance.grayscale();
 
     if (!isAnimated) {
-      // Apply artifact removal for static images before sharpening
       if (outputFormat === 'jpeg' || outputFormat === 'avif') {
         sharpInstance = applyArtifactReduction(sharpInstance, pixelCount);
       }
-
-      if (pixelCount > 500000) { // Apply sharpening for large or detailed images
+      if (pixelCount > 500000) {
         sharpInstance = sharpInstance.sharpen(sharpenParams.sigma, sharpenParams.flat, sharpenParams.jagged);
       }
     }
@@ -55,19 +44,14 @@ async function compress(req, res, input) {
       minQuantizer: outputFormat === 'avif' ? minQuantizer : undefined,
       maxQuantizer: outputFormat === 'avif' ? maxQuantizer : undefined,
       effort: outputFormat === 'avif' ? effort : undefined,
-      loop: isAnimated ? 0 : undefined, // For animated WebP, set loop
+      loop: isAnimated ? 0 : undefined,
     });
 
-    const outputStream = sharpInstance.toBuffer({ resolveWithObject: true });
-    const { data: output, info } = await outputStream;
-
-    if (res.headersSent) {
-      console.error('Headers already sent, unable to compress the image.');
-      return;
-    }
+    const { data: output, info } = await sharpInstance.toBuffer({ resolveWithObject: true });
+    
+    if (res.headersSent) return console.error('Headers already sent, unable to compress the image.');
 
     sendImage(res, output, outputFormat, url, originSize, info.size);
-
   } catch (err) {
     console.error('Error during image compression:', err);
     return redirect(req, res);
@@ -100,21 +84,15 @@ function optimizeAvifParams(width, height) {
 
 // Adjust compression quality based on image size and pixel count
 function adjustCompressionQuality(pixelCount, size, quality) {
-  // Constants to tweak the curve behavior
-  const pixelFactor = 1.5;   // Higher values compress large images more aggressively
-  const sizeFactor = 0.002;  // Affects how sensitive compression is to size changes
-  const baseQuality = Math.min(quality, 100); // Ensure quality doesn't exceed 100
+  const pixelFactor = 1.5;
+  const sizeFactor = 0.002;
+  const baseQuality = Math.min(quality, 100);
 
-  // Normalized pixel size factor with logarithmic scaling for smoother quality adjustments
-  const pixelSizeScale = Math.log10(Math.max(pixelCount / 1e6, 1));  // Normalizes to ~1 for small images, scales up for larger
+  const pixelSizeScale = Math.log10(Math.max(pixelCount / 1e6, 1));
+  const sizeScale = Math.log2(Math.max(size / 1e6, 1));
 
-  // Calculate a scaling factor based on size
-  const sizeScale = Math.log2(Math.max(size / 1e6, 1)); // Normalizes based on file size, logarithmic progression
-
-  // Dynamic quality adjustment with a smooth, continuous function
   let adjustedQuality = baseQuality - (pixelSizeScale * pixelFactor + sizeScale * sizeFactor) * baseQuality;
 
-  // Ensure that quality doesn't drop below a minimum threshold (e.g., 10)
   adjustedQuality = Math.max(adjustedQuality, 40);
 
   return Math.ceil(adjustedQuality);
@@ -122,50 +100,38 @@ function adjustCompressionQuality(pixelCount, size, quality) {
 
 // Apply artifact reduction before sharpening and compression
 function applyArtifactReduction(sharpInstance, pixelCount) {
-  // Constants for different thresholds (in pixels)
-  const largeImageThreshold = 3000000; // 3MP
-  const mediumImageThreshold = 1000000; // 1MP
-  const smallImageThreshold = 500000; // 0.5MP
+  const largeImageThreshold = 3000000;
+  const mediumImageThreshold = 1000000;
+  const smallImageThreshold = 500000;
 
-  // Set adaptive parameters
-  let blurRadius = 0.3; // Minimal blur to prevent over-softening
-  let denoiseStrength = 0.1; // Default light denoise
-  let sharpenSigma = 0.5; // Light sharpening to enhance edges
-  let saturationReduction = 1.0; // No desaturation by default
+  let blurRadius = 0.3;
+  let denoiseStrength = 0.1;
+  let sharpenSigma = 0.5;
+  let saturationReduction = 1.0;
 
-  // Dynamic adjustment of sharpening and light blur based on pixel count
   if (pixelCount > largeImageThreshold) {
-    // For very large images, apply stronger sharpening but minimal blur
-    blurRadius = 0.4; // Very light blur
-    denoiseStrength = 0.15; // Moderate denoise to reduce compression artifacts
-    sharpenSigma = 0.8; // Stronger sharpening
-    saturationReduction = 0.85; // Mild desaturation to reduce color noise
+    blurRadius = 0.4;
+    denoiseStrength = 0.15;
+    sharpenSigma = 0.8;
+    saturationReduction = 0.85;
   } else if (pixelCount > mediumImageThreshold) {
-    // For medium-sized images, apply light blur and moderate sharpening
-    blurRadius = 0.35; // Light blur, prevents over-softening
-    denoiseStrength = 0.12; // Moderate denoise
-    sharpenSigma = 0.6; // Moderate sharpening
-    saturationReduction = 0.9; // Mild desaturation
+    blurRadius = 0.35;
+    denoiseStrength = 0.12;
+    sharpenSigma = 0.6;
+    saturationReduction = 0.9;
   } else if (pixelCount > smallImageThreshold) {
-    // For smaller images, use minimal blur and light sharpening
-    blurRadius = 0.3; // Minimal blur for small images
-    denoiseStrength = 0.1; // Light denoise
-    sharpenSigma = 0.5; // Light sharpening
-    saturationReduction = 0.95; // Minimal desaturation
+    blurRadius = 0.3;
+    denoiseStrength = 0.1;
+    sharpenSigma = 0.5;
+    saturationReduction = 0.95;
   }
 
-  // Apply light blur, denoise, and sharpening with edge preservation
-  sharpInstance = sharpInstance
-    .modulate({
-      saturation: saturationReduction // Adjust saturation for color noise
-    })
-    .blur(blurRadius) // Apply adaptive blur (conservatively small)
-    .sharpen(sharpenSigma) // Apply sharpening with mild sigma
-    .gamma(); // Optional: enhance contrast slightly to improve visual sharpness
-
-  return sharpInstance;
+  return sharpInstance
+    .modulate({ saturation: saturationReduction })
+    .blur(blurRadius)
+    .sharpen(sharpenSigma)
+    .gamma();
 }
-
 
 // Send the compressed image as response
 function sendImage(res, data, imgFormat, url, originSize, compressedSize) {
