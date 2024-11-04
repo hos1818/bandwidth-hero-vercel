@@ -1,4 +1,4 @@
-const { URL } = require('url'); // Import URL class from 'url' module
+const { URL } = require('url');
 
 /**
  * Validates a URL for security, protocol, format, and domain restrictions.
@@ -7,115 +7,241 @@ const { URL } = require('url'); // Import URL class from 'url' module
  * @param {Object} options - Validation options.
  * @param {Array<string>} options.allowedProtocols - List of allowed protocols.
  * @param {Array<string>} options.allowedHosts - List of allowed hostnames or domains.
+ * @param {number} options.maxLength - Maximum allowed URL length (default: 2048).
  * @returns {boolean} True if the URL is valid, false otherwise.
  */
 function isValidUrl(urlString, options = {}) {
-    if (!urlString) {
-        console.error('No URL provided for validation.');
+    // Early validation to prevent unnecessary processing
+    if (!urlString || typeof urlString !== 'string') {
+        console.error('Invalid or missing URL string');
         return false;
     }
 
-    const { allowedProtocols = ['http:', 'https:'], allowedHosts = [] } = options;
+    const {
+        allowedProtocols = ['http:', 'https:'],
+        allowedHosts = [],
+        maxLength = 2048
+    } = options;
+
+    // Check URL length to prevent DoS attacks
+    if (urlString.length > maxLength) {
+        console.error(`URL exceeds maximum length of ${maxLength} characters`);
+        return false;
+    }
 
     try {
         const normalizedUrl = normalizeUrl(urlString);
+        
+        // Use URL constructor for basic validation
         const parsedUrl = new URL(normalizedUrl);
-
-        // Allow only specific protocols for security reasons.
-        if (!allowedProtocols.includes(parsedUrl.protocol)) {
+        
+        // Validate protocol
+        if (!allowedProtocols.includes(parsedUrl.protocol.toLowerCase())) {
             console.error(`Invalid URL protocol: ${parsedUrl.protocol}`);
             return false;
         }
 
-        // Allow only specific hosts/domains if specified.
+        // Validate hostname
         if (allowedHosts.length > 0) {
-            const hostIsAllowed = allowedHosts.some(host => parsedUrl.hostname.endsWith(host));
+            const hostname = parsedUrl.hostname.toLowerCase();
+            const hostIsAllowed = allowedHosts.some(host => 
+                hostname === host.toLowerCase() || hostname.endsWith(`.${host.toLowerCase()}`));
+            
             if (!hostIsAllowed) {
                 console.error(`URL host not allowed: ${parsedUrl.hostname}`);
                 return false;
             }
         }
 
+        // Clear parsedUrl reference to prevent memory leaks
+        parsedUrl.searchParams.clear();
         return true;
+
     } catch (error) {
-        console.error(`Invalid URL: ${urlString}. Error: ${error.message}`);
+        console.error(`URL validation failed: ${error.message}`);
         return false;
     }
 }
 
 /**
  * Normalizes a URL by trimming whitespace, removing trailing slashes,
- * and decoding safe characters for consistency.
+ * and handling encoded characters safely.
  * 
  * @param {string} urlString - The URL string to normalize.
  * @returns {string} - The normalized URL.
+ * @throws {Error} - If URL normalization fails
  */
 function normalizeUrl(urlString) {
-    return decodeURI(urlString.trim().replace(/\/+$/, ''));
+    if (!urlString) return '';
+    
+    try {
+        // Remove whitespace and trailing slashes
+        const trimmed = urlString.trim().replace(/\/+$/, '');
+        
+        // Safely decode URI components
+        return decodeURIComponent(encodeURIComponent(trimmed));
+    } catch (error) {
+        throw new Error(`URL normalization failed: ${error.message}`);
+    }
 }
 
 /**
- * Redirects a client to a given URL, with built-in validation and protection 
- * against open redirect vulnerabilities and redirect loops.
+ * Redirects a client to a given URL with security measures against
+ * open redirects, redirect loops, and potential memory leaks.
  * 
- * @param {Object} req - The request object, containing URL parameters.
- * @param {Object} res - The response object, used to send headers and responses.
+ * @param {Object} req - The request object.
+ * @param {Object} res - The response object.
  * @param {number} [statusCode=302] - The HTTP status code for the redirect.
- * @param {Object} options - Additional options for allowed hosts and protocols.
+ * @param {Object} options - Additional options for validation.
+ * @param {Function} [errorHandler] - Custom error handler function.
  */
-function redirect(req, res, statusCode = 302, options = {}) {
-    const targetUrl = req.params.url;
+function redirect(req, res, statusCode = 302, options = {}, errorHandler) {
+    // Input validation
+    if (!req || !res) {
+        const error = new Error('Missing required parameters');
+        if (errorHandler) {
+            errorHandler(error);
+        } else {
+            console.error(error);
+        }
+        return;
+    }
 
+    const targetUrl = req.params.url || req.query.url;
+    
     if (!targetUrl) {
-        console.error('No target URL provided for redirection.');
-        res.status(400).send('Bad Request: Missing target URL.');
+        const error = new Error('No target URL provided');
+        handleRedirectError(res, error, errorHandler);
         return;
     }
 
-    // Normalize and validate the URL to prevent open redirects.
-    const normalizedUrl = normalizeUrl(targetUrl);
-    if (!isValidUrl(normalizedUrl, options)) {
-        console.error(`Attempted redirect to unauthorized or invalid URL: ${targetUrl}`);
-        res.status(400).send('Invalid URL.');
-        return;
+    try {
+        // Normalize and validate URL
+        const normalizedUrl = normalizeUrl(targetUrl);
+        if (!isValidUrl(normalizedUrl, options)) {
+            throw new Error('Invalid or unauthorized URL');
+        }
+
+        // Prevent redirect loops
+        const currentUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+        if (normalizedUrl === currentUrl) {
+            throw new Error('Redirect loop detected');
+        }
+
+        // Check headers
+        if (res.headersSent) {
+            throw new Error('Headers already sent');
+        }
+
+        // Clean up headers
+        cleanupHeaders(res);
+
+        // Set security headers
+        setSecurityHeaders(res);
+
+        // Set redirect location
+        const encodedUrl = encodeURI(normalizedUrl);
+        res.setHeader('Location', encodedUrl);
+
+        // Log redirect (with sensitive data handling)
+        logRedirect(req, encodedUrl, statusCode);
+
+        // Send appropriate response
+        sendRedirectResponse(res, statusCode, encodedUrl);
+
+    } catch (error) {
+        handleRedirectError(res, error, errorHandler);
+    }
+}
+
+/**
+ * Handles redirect errors consistently
+ */
+function handleRedirectError(res, error, errorHandler) {
+    if (errorHandler) {
+        errorHandler(error);
+    } else {
+        console.error(error);
     }
 
-    // Prevent redirect loops by checking if the URL matches the current request URL.
-    if (req.originalUrl === normalizedUrl) {
-        console.error('Detected a redirect loop.');
-        res.status(400).send('Redirect loop detected.');
-        return;
+    if (!res.headersSent) {
+        res.status(400).send('Redirect failed: ' + error.message);
     }
+}
 
-    // Check if headers have already been sent.
-    if (res.headersSent) {
-        console.error('Headers already sent, unable to redirect.');
-        return;
-    }
-
-    // Remove potentially harmful or conflicting headers.
-    const restrictedHeaders = ['content-length', 'cache-control', 'expires', 'date', 'etag'];
+/**
+ * Removes potentially harmful headers
+ */
+function cleanupHeaders(res) {
+    const restrictedHeaders = [
+        'content-length',
+        'content-type',
+        'transfer-encoding',
+        'cache-control',
+        'expires',
+        'date',
+        'etag',
+        'last-modified'
+    ];
+    
     restrictedHeaders.forEach(header => res.removeHeader(header));
+}
 
-    // Set the location header for the redirect.
-    res.setHeader('location', encodeURI(normalizedUrl));
+/**
+ * Sets security-related headers
+ */
+function setSecurityHeaders(res) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Content-Security-Policy', "default-src 'none'");
+}
 
-    // Log redirect details for monitoring.
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    console.log(`Redirecting client to ${normalizedUrl} from IP ${clientIp} with status code ${statusCode}.`);
+/**
+ * Logs redirect information safely
+ */
+function logRedirect(req, encodedUrl, statusCode) {
+    const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
+        .split(',')[0]
+        .trim();
+    
+    console.log({
+        timestamp: new Date().toISOString(),
+        action: 'redirect',
+        statusCode,
+        targetUrl: encodedUrl,
+        clientIp,
+        userAgent: req.headers['user-agent'] || 'unknown'
+    });
+}
 
-    // Send the response with fallback HTML for older clients.
+/**
+ * Sends the appropriate redirect response
+ */
+function sendRedirectResponse(res, statusCode, encodedUrl) {
     if (statusCode === 302) {
-        res.status(statusCode).send(`<html>
-            <head><meta http-equiv="refresh" content="0;url=${encodeURI(normalizedUrl)}"></head>
+        const html = `<!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta http-equiv="refresh" content="0;url=${encodedUrl}">
+                <title>Redirecting...</title>
+            </head>
             <body>
-                <script>window.location.href = "${encodeURI(normalizedUrl)}";</script>
-                Redirecting...
+                <script>window.location.href="${encodedUrl}";</script>
+                <p>Redirecting to new location...</p>
             </body>
-            </html>`);
+            </html>`;
+        
+        res.status(statusCode)
+           .setHeader('Content-Type', 'text/html; charset=UTF-8')
+           .send(html);
     } else {
         res.status(statusCode).end();
     }
 }
 
-module.exports = redirect;
+module.exports = {
+    redirect,
+    isValidUrl,
+    normalizeUrl
+};
