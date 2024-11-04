@@ -1,73 +1,175 @@
-const isAnimated = require('is-animated');
+'use strict';
 
-// Define default compression size thresholds and allow overrides through environment variables.
-const DEFAULT_MIN_COMPRESS_LENGTH = 512;
-const MIN_COMPRESS_LENGTH = parseInt(process.env.MIN_COMPRESS_LENGTH, 10) || DEFAULT_MIN_COMPRESS_LENGTH;
-const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 50; // ~100KB for PNG/GIFs
-const APNG_THRESH_LENGTH = MIN_COMPRESS_LENGTH * 100; // ~200KB for animated PNGs
+/**
+ * Configuration object for compression thresholds
+ * Using Object.freeze to prevent accidental modifications
+ */
+const CONFIG = Object.freeze({
+  DEFAULT_MIN_COMPRESS_LENGTH: 512,
+  get MIN_COMPRESS_LENGTH() {
+    return parseInt(process.env.MIN_COMPRESS_LENGTH, 10) || this.DEFAULT_MIN_COMPRESS_LENGTH;
+  },
+  get MIN_TRANSPARENT_COMPRESS_LENGTH() {
+    return this.MIN_COMPRESS_LENGTH * 50;
+  },
+  get APNG_THRESH_LENGTH() {
+    return this.MIN_COMPRESS_LENGTH * 100;
+  }
+});
 
-// Utility functions for specific checks
-function isImageType(originType) {
-    return originType && originType.startsWith('image');
-}
+/**
+ * Type definitions for better code organization and validation
+ * @typedef {Object} CompressionParams
+ * @property {string} originType - MIME type of the original image
+ * @property {number} originSize - Size of the original image in bytes
+ * @property {boolean} webp - Whether WebP compression should be applied
+ */
 
-function hasSufficientSize(originSize, threshold) {
-    return originSize >= threshold;
-}
+/**
+ * Cache for isAnimated results to prevent redundant processing
+ * Using WeakMap to allow garbage collection of buffer keys
+ */
+const animatedCache = new WeakMap();
 
-function isNotEligibleForWebpCompression(webp, originSize) {
-    return webp && originSize < MIN_COMPRESS_LENGTH;
-}
+/**
+ * Checks if the content type is an image
+ * @param {string} originType 
+ * @returns {boolean}
+ */
+const isImageType = (originType) => {
+  return typeof originType === 'string' && originType.startsWith('image/');
+};
 
-function isBelowSizeThresholdForCompression(originType, originSize, webp) {
-    if (!webp && (originType.endsWith('png') || originType.endsWith('gif'))) {
-        return originSize < MIN_TRANSPARENT_COMPRESS_LENGTH;
-    }
+/**
+ * Checks if the size meets the compression threshold
+ * @param {number} originSize 
+ * @param {number} threshold 
+ * @returns {boolean}
+ */
+const hasSufficientSize = (originSize, threshold) => {
+  return typeof originSize === 'number' && originSize >= threshold;
+};
+
+/**
+ * Checks if WebP compression should be skipped
+ * @param {boolean} webp 
+ * @param {number} originSize 
+ * @returns {boolean}
+ */
+const isNotEligibleForWebpCompression = (webp, originSize) => {
+  return webp && originSize < CONFIG.MIN_COMPRESS_LENGTH;
+};
+
+/**
+ * Checks if the image is below the size threshold for compression
+ * @param {string} originType 
+ * @param {number} originSize 
+ * @param {boolean} webp 
+ * @returns {boolean}
+ */
+const isBelowSizeThresholdForCompression = (originType, originSize, webp) => {
+  if (!webp && (originType.endsWith('png') || originType.endsWith('gif'))) {
+    return originSize < CONFIG.MIN_TRANSPARENT_COMPRESS_LENGTH;
+  }
+  return false;
+};
+
+/**
+ * Checks if the image is a small animated PNG
+ * @param {string} originType 
+ * @param {Buffer} buffer 
+ * @param {number} originSize 
+ * @returns {boolean}
+ */
+const isSmallAnimatedPng = (originType, buffer, originSize) => {
+  if (!originType.endsWith('png') || originSize >= CONFIG.APNG_THRESH_LENGTH) {
     return false;
-}
+  }
 
-function isSmallAnimatedPng(originType, buffer, originSize) {
-    return originType.endsWith('png') && isAnimated(buffer) && originSize < APNG_THRESH_LENGTH;
-}
+  // Check cache first
+  if (animatedCache.has(buffer)) {
+    return animatedCache.get(buffer);
+  }
 
-// Consolidated function for checking size thresholds
-function isSizeBelowThreshold({ originType, originSize, webp }, buffer) {
-    return isNotEligibleForWebpCompression(webp, originSize) ||
-           isBelowSizeThresholdForCompression(originType, originSize, webp) ||
-           isSmallAnimatedPng(originType, buffer, originSize);
-}
+  try {
+    const isAnimatedResult = require('is-animated')(buffer);
+    animatedCache.set(buffer, isAnimatedResult);
+    return isAnimatedResult;
+  } catch (error) {
+    console.error('Error checking animation:', error);
+    return false;
+  }
+};
 
-// Main function to decide if compression should be applied
+/**
+ * Checks if the image size is below threshold for compression
+ * @param {CompressionParams} params 
+ * @param {Buffer} buffer 
+ * @returns {boolean}
+ */
+const isSizeBelowThreshold = ({ originType, originSize, webp }, buffer) => {
+  return isNotEligibleForWebpCompression(webp, originSize) ||
+         isBelowSizeThresholdForCompression(originType, originSize, webp) ||
+         isSmallAnimatedPng(originType, buffer, originSize);
+};
+
+/**
+ * Validates compression parameters
+ * @param {CompressionParams} params 
+ * @returns {boolean}
+ */
+const validateParams = ({ originType, originSize }) => {
+  return originType && 
+         typeof originSize === 'number' && 
+         originSize >= 0;
+};
+
+/**
+ * Main function to determine if compression should be applied
+ * @param {Object} req - Request object containing compression parameters
+ * @param {Buffer} buffer - Image buffer
+ * @returns {boolean}
+ */
 function shouldCompress(req, buffer) {
-    const { originType, originSize, webp } = req.params;
+  if (!req?.params || !Buffer.isBuffer(buffer)) {
+    console.error('Invalid request or buffer');
+    return false;
+  }
 
-    // Validate parameters
-    if (!originType || typeof originSize !== 'number' || originSize < 0) {
-        console.error('Invalid parameters: originType or originSize missing/invalid.');
-        return false;
-    }
+  const { originType, originSize } = req.params;
 
-    // Ensure it's an image type
-    if (!isImageType(originType)) {
-        console.log(`Skipping compression for non-image type: ${originType}`);
-        return false;
-    }
+  // Validate parameters
+  if (!validateParams(req.params)) {
+    console.error('Invalid parameters: originType or originSize missing/invalid');
+    return false;
+  }
 
-    // Skip zero-size content
-    if (originSize === 0) {
-        console.log('Skipping compression for zero-size content.');
-        return false;
-    }
+  // Early returns for obvious cases
+  if (!isImageType(originType)) {
+    console.log(`Skipping compression for non-image type: ${originType}`);
+    return false;
+  }
 
-    // Apply thresholds for size and other conditions
-    if (isSizeBelowThreshold(req.params, buffer)) {
-        console.log(`No compression applied for content of type: ${originType} and size: ${originSize}`);
-        return false;
-    }
+  if (originSize === 0) {
+    console.log('Skipping compression for zero-size content');
+    return false;
+  }
 
-    // If none of the conditions match, apply compression
-    console.log(`Compressing content of type: ${originType} and size: ${originSize}`);
-    return true;
+  // Check size thresholds
+  if (isSizeBelowThreshold(req.params, buffer)) {
+    console.log(`No compression applied for content of type: ${originType} and size: ${originSize}`);
+    return false;
+  }
+
+  console.log(`Compressing content of type: ${originType} and size: ${originSize}`);
+  return true;
 }
+
+// Clean up the cache periodically
+setInterval(() => {
+  if (global.gc) {
+    global.gc();
+  }
+}, 30 * 60 * 1000); // Run every 30 minutes
 
 module.exports = shouldCompress;
