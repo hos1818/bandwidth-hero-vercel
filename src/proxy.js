@@ -14,376 +14,350 @@ const { URL } = require('node:url');
 const Bottleneck = require('bottleneck');
 const cloudscraper = require('cloudscraper');
 
-// Constants and configuration
-const CONSTANTS = {
-  SSL: {
-    OP_NO_TLSv1: https.constants?.SSL_OP_NO_TLSv1 ?? 0x04000000,
-    OP_NO_TLSv1_1: https.constants?.SSL_OP_NO_TLSv1_1 ?? 0x10000000
-  },
-  LIMITS: {
-    MAX_REDIRECTS: 5,
-    MAX_RETRIES: 3,
-    REQUEST_TIMEOUT: 10000,
-    CACHE_SIZE: 100,
-    MAX_RESPONSE_SIZE: 50 * 1024 * 1024 // 50MB
-  },
-  HEADERS: {
-    DEFAULT_USER_AGENT: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-    SECURITY: {
-      CSP: "default-src 'self'; img-src *; media-src *; script-src 'none'; object-src 'none';",
-      HSTS: 'max-age=63072000; includeSubDomains; preload'
-    }
-  }
+
+// Safely access SSL options with a fallback for older Node.js versions
+const SSL_OP_NO_TLSv1 = https.constants ? https.constants.SSL_OP_NO_TLSv1 : 0x04000000;  // Fallback value
+const SSL_OP_NO_TLSv1_1 = https.constants ? https.constants.SSL_OP_NO_TLSv1_1 : 0x10000000;  // Fallback value
+
+// Compression formats based on client support
+const compressionMethods = {
+    gzip: (data) => zlib.gzipSync(data),
+    br: (data) => zlib.brotliCompressSync(data),
+    deflate: (data) => zlib.deflateSync(data)
 };
 
-// LRU Cache implementation with size limits and auto-cleanup
-class LRUCache {
-  constructor(maxSize = CONSTANTS.LIMITS.CACHE_SIZE) {
-    this.cache = new Map();
-    this.maxSize = maxSize;
-  }
-
-  set(key, value, ttl = 300000) { // 5 minutes TTL default
-    if (this.cache.size >= this.maxSize) {
-      const firstKey = this.cache.keys().next().value;
-      this.cache.delete(firstKey);
-    }
-    
-    const item = {
-      value,
-      timestamp: Date.now(),
-      ttl
+// Decompression utility function
+async function decompress(data, encoding) {
+    const decompressors = {
+        gzip: () => zlib.promises.gunzip(data),
+        br: () => zlib.promises.brotliDecompress(data),
+        deflate: () => zlib.promises.inflate(data),
+        lzma: () => new Promise((resolve, reject) => {
+            lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result));
+        }),
+        lzma2: () => new Promise((resolve, reject) => {
+            lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result));
+        }),
+        zstd: () => new Promise((resolve, reject) => {
+            ZstdCodec.run(zstd => {
+                try {
+                    const simple = new zstd.Simple();
+                    resolve(simple.decompress(data));
+                } catch (error) {
+                    reject(error);
+                }
+            });
+        }),
     };
-    
-    this.cache.set(key, item);
-    
-    // Schedule cleanup
-    setTimeout(() => {
-      this.cache.delete(key);
-    }, ttl);
-  }
 
-  get(key) {
-    const item = this.cache.get(key);
-    if (!item) return null;
-    
-    if (Date.now() - item.timestamp > item.ttl) {
-      this.cache.delete(key);
-      return null;
+    if (decompressors[encoding]) {
+        return decompressors[encoding]();
+    } else {
+        console.warn(`Unknown content-encoding: ${encoding}`);
+        return data;
     }
-    
-    return item.value;
-  }
-
-  clear() {
-    this.cache.clear();
-  }
 }
 
-// Create a memory-efficient request limiter
+// HTTP/2 request handling
+async function makeHttp2Request(config) {
+    return new Promise((resolve, reject) => {
+        const client = http2.connect(config.url.origin);
+        const headers = {
+            ':method': 'GET',
+            ':path': config.url.pathname,
+            ...pick(config.headers, ['cookie', 'dnt', 'referer']),
+            'user-agent': config.headers['user-agent'],
+        };
+
+        const req = client.request(headers);
+        let data = [];
+
+        req.on('response', (headers) => {
+            data = []; // Clear data on each new response
+        });
+        req.on('data', chunk => data.push(chunk));
+        req.on('end', () => resolve(Buffer.concat(data)));
+        req.on('error', err => reject(err));
+
+        req.end();
+    });
+}
+
+// Create a limiter with a maximum of 1 request every 2 seconds
 const limiter = new Bottleneck({
-  maxConcurrent: 5,
-  minTime: 2000,
-  highWater: 1000,
-  strategy: Bottleneck.strategy.LEAK,
-  reservoir: 100,
-  reservoirRefreshInterval: 60 * 1000,
-  reservoirRefreshAmount: 100
+    maxConcurrent: 5,  // Limit to 5 concurrent requests
+    minTime: 2000      // Minimum time of 2 seconds between requests
 });
 
-// Initialize cache
-const requestCache = new LRUCache();
+async function makeRequest(config) {
+    return limiter.schedule(() => axios(config));
+}
 
-// Compression utilities with memory limits
-const compressionUtils = {
-  async compress(data, method, maxSize = CONSTANTS.LIMITS.MAX_RESPONSE_SIZE) {
-    if (Buffer.byteLength(data) > maxSize) {
-      throw new Error('Response too large for compression');
-    }
 
-    const methods = {
-      br: () => zlib.brotliCompressSync(data, {
-        params: {
-          [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
-          [zlib.constants.BROTLI_PARAM_QUALITY]: 4,
-          [zlib.constants.BROTLI_PARAM_SIZE_HINT]: Buffer.byteLength(data)
+// Caching logic (simple in-memory cache, could be replaced with Redis or similar)
+const requestCache = new Map();
+
+// Circuit breaker settings
+const circuitBreaker = {
+    failureThreshold: 5,  // Number of failures before opening the circuit
+    resetTimeout: 60000,  // Time in ms to wait before retrying after the circuit opens
+    failureCount: 0,
+    lastFailureTime: null,
+    isOpen() {
+        const now = Date.now();
+        if (this.failureCount >= this.failureThreshold && now - this.lastFailureTime < this.resetTimeout) {
+            return true;  // Circuit is open, stop making requests
         }
-      }),
-      gzip: () => zlib.gzipSync(data, { level: 6 }),
-      deflate: () => zlib.deflateSync(data, { level: 6 })
-    };
-
-    return methods[method] ? methods[method]() : data;
-  },
-
-  async decompress(data, encoding) {
-    if (!data || !Buffer.isBuffer(data)) {
-      throw new Error('Invalid input for decompression');
+        return false;  // Circuit is closed, allow requests
+    },
+    recordFailure() {
+        this.failureCount++;
+        this.lastFailureTime = Date.now();
+    },
+    reset() {
+        this.failureCount = 0;
+        this.lastFailureTime = null;
     }
-
-    const decompressors = {
-      br: () => zlib.brotliDecompressSync(data),
-      gzip: () => zlib.gunzipSync(data),
-      deflate: () => zlib.inflateSync(data),
-      lzma: () => new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('LZMA decompression timeout'));
-        }, 5000);
-        
-        lzma.decompress(data, (result, error) => {
-          clearTimeout(timeout);
-          error ? reject(error) : resolve(result);
-        });
-      }),
-      zstd: () => new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Zstd decompression timeout'));
-        }, 5000);
-
-        ZstdCodec.run(zstd => {
-          try {
-            const simple = new zstd.Simple();
-            const result = simple.decompress(data);
-            clearTimeout(timeout);
-            resolve(result);
-          } catch (error) {
-            clearTimeout(timeout);
-            reject(error);
-          }
-        });
-      })
-    };
-
-    if (!decompressors[encoding]) {
-      return data;
-    }
-
-    try {
-      return await decompressors[encoding]();
-    } catch (error) {
-      console.error(`Decompression error (${encoding}):`, error);
-      throw error;
-    }
-  }
 };
 
-// Enhanced HTTP/2 client with proper resource management
-class Http2Client {
-  constructor(url) {
-    this.url = url;
-    this.client = null;
-    this.connecting = false;
-    this.closeTimeout = null;
-  }
-
-  async connect() {
-    if (this.client) return;
-    
-    if (this.connecting) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      return this.connect();
+// Safely handle decompression
+function decompressBody(body, encoding) {
+    switch (encoding) {
+        case 'br':
+            return zlib.brotliDecompressSync(body);
+        case 'gzip':
+            return zlib.gunzipSync(body);
+        case 'deflate':
+            return zlib.inflateSync(body);
+        default:
+            return body;  // No compression or unknown encoding
     }
-
-    this.connecting = true;
-    
-    try {
-      this.client = http2.connect(this.url);
-      
-      this.client.on('error', (err) => {
-        console.error('HTTP/2 client error:', err);
-        this.destroy();
-      });
-
-      this.client.on('goaway', () => {
-        this.scheduleClose();
-      });
-
-    } finally {
-      this.connecting = false;
-    }
-  }
-
-  scheduleClose() {
-    if (this.closeTimeout) clearTimeout(this.closeTimeout);
-    
-    this.closeTimeout = setTimeout(() => {
-      this.destroy();
-    }, 5000);
-  }
-
-  destroy() {
-    if (this.closeTimeout) {
-      clearTimeout(this.closeTimeout);
-      this.closeTimeout = null;
-    }
-
-    if (this.client) {
-      this.client.destroy();
-      this.client = null;
-    }
-  }
-
-  async request(headers, timeout = CONSTANTS.LIMITS.REQUEST_TIMEOUT) {
-    await this.connect();
-
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new Error('HTTP/2 request timeout'));
-      }, timeout);
-
-      const req = this.client.request(headers);
-      const chunks = [];
-      let size = 0;
-
-      req.on('response', (headers) => {
-        if (headers[':status'] >= 400) {
-          clearTimeout(timer);
-          reject(new Error(`HTTP/2 error: ${headers[':status']}`));
-        }
-      });
-
-      req.on('data', chunk => {
-        size += chunk.length;
-        if (size > CONSTANTS.LIMITS.MAX_RESPONSE_SIZE) {
-          clearTimeout(timer);
-          req.destroy(new Error('Response too large'));
-          reject(new Error('Response size exceeded limit'));
-          return;
-        }
-        chunks.push(chunk);
-      });
-
-      req.on('end', () => {
-        clearTimeout(timer);
-        resolve(Buffer.concat(chunks));
-      });
-
-      req.on('error', (err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-
-      req.end();
-    });
-  }
 }
 
-// Proxy implementation
-async function proxy(req, res) {
-  let http2Client = null;
-  
-  try {
-    const config = {
-      url: new URL(req.params.url),
-      method: 'get',
-      headers: {
-        ...pick(req.headers, ['cookie', 'referer']),
-        'user-agent': CONSTANTS.HEADERS.DEFAULT_USER_AGENT,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/*,*/*;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Cache-Control': 'no-cache',
-        'DNT': '1',
-        'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
-        'Connection': 'keep-alive'
-      },
-      timeout: CONSTANTS.LIMITS.REQUEST_TIMEOUT,
-      maxRedirects: CONSTANTS.LIMITS.MAX_REDIRECTS,
-      responseType: 'arraybuffer',
-      validateStatus: status => status < 500,
-      maxContentLength: CONSTANTS.LIMITS.MAX_RESPONSE_SIZE,
-      maxBodyLength: CONSTANTS.LIMITS.MAX_RESPONSE_SIZE
+// Enhanced cloudscraper handling function
+async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
+    const MAX_REDIRECTS = 5;
+    const MAX_RETRIES = 3;
+
+    const ciphers = [
+        'ECDHE-ECDSA-AES128-GCM-SHA256',
+        'ECDHE-RSA-AES128-GCM-SHA256',
+        'ECDHE-ECDSA-AES256-GCM-SHA384',
+        'ECDHE-RSA-AES256-GCM-SHA384',
+        'DHE-RSA-AES128-GCM-SHA256',
+        'DHE-RSA-AES256-GCM-SHA384'
+    ].join(':');
+
+    const agent = new https.Agent({
+        ciphers,
+        honorCipherOrder: true,
+        secureOptions: https.constants.SSL_OP_NO_TLSv1 | https.constants.SSL_OP_NO_TLSv1_1,
+        keepAlive: true,
+    });
+
+    // Exponential backoff with jitter
+    const retryRequest = async (delay, retryAttempt) => {
+        const jitter = Math.random() * 1000;
+        const backoffTime = delay * Math.pow(2, retryAttempt) + jitter;
+        console.warn(`Retrying in ${backoffTime.toFixed(0)}ms...`);
+        return new Promise((resolve) => setTimeout(resolve, backoffTime))
+            .then(() => makeCloudscraperRequest(config, retries - 1, redirectCount));
     };
 
-    // Check cache first
-    const cachedResponse = requestCache.get(config.url.href);
-    if (cachedResponse) {
-      return sendResponse(res, cachedResponse.data, cachedResponse.headers);
+    // Check circuit breaker
+    if (circuitBreaker.isOpen()) {
+        console.error('Circuit is open, aborting request.');
+        throw new Error('Circuit breaker is open, aborting requests.');
     }
 
-    let response;
-    if (config.url.protocol === 'http2:') {
-      http2Client = new Http2Client(config.url.origin);
-      response = await http2Client.request({
-        ':method': 'GET',
-        ':path': config.url.pathname,
-        ...pick(config.headers, ['cookie', 'dnt', 'referer', 'user-agent'])
-      });
-    } else {
-      response = await limiter.schedule(() => axios(config));
+    // Caching logic: check cache first
+    const cacheKey = config.url.href;
+    if (requestCache.has(cacheKey)) {
+        console.log('Serving response from cache');
+        return requestCache.get(cacheKey);
     }
 
-    const { headers, data } = response;
-    let decompressedData = await compressionUtils.decompress(
-      data, 
-      headers['content-encoding']
-    );
+    return limiter.schedule(() => new Promise((resolve, reject) => {
+        cloudscraper.get({
+            uri: config.url.href,
+            headers: config.headers,
+            gzip: true,
+            encoding: null,  // Raw buffer data
+            agentOptions: {
+                httpsAgent: agent,
+                proxy: config.proxy || null,
+            },
+            timeout: config.timeout || 10000
+        }, async (error, response, body) => {
+            if (error) {
+                circuitBreaker.recordFailure();  // Record failure for circuit breaker
+                if (retries > 0) {
+                    return resolve(await retryRequest(1000, MAX_RETRIES - retries));  // Retry with backoff
+                }
+                console.error(`Cloudscraper failed: ${error.message}`);
+                return reject(new Error('Cloudscraper Request Failed'));
+            }
 
-    // Cache successful responses
-    requestCache.set(config.url.href, {
-      data: decompressedData,
-      headers
-    });
+            const { statusCode } = response;
+            
+            // Handle Cloudflare challenges
+            if (response.headers['cf-mitigated']) {
+                console.warn('Cloudflare challenge detected, retrying with cloudscraper...');
+                return resolve(await retryRequest(2000, MAX_RETRIES - retries));
+            }
 
-    await sendResponse(res, decompressedData, headers);
+            // Handle 403 Forbidden or Cloudflare retries
+            if (statusCode === 403) {
+                if (retries > 0) {
+                    console.warn(`403 Forbidden. Retrying... Attempts left: ${retries}`);
+                    return resolve(await retryRequest(2000, MAX_RETRIES - retries));
+                }
+                console.error('Cloudflare returned 403, maximum retries reached.');
+                return reject(new Error('Cloudscraper Request Blocked by Cloudflare'));
+            }
 
-  } catch (error) {
-    console.error('Proxy error:', error);
-    await redirect(req, res);
-  } finally {
-    if (http2Client) {
-      http2Client.destroy();
-    }
-  }
+            // Handle redirects (302)
+            if (statusCode === 302 && redirectCount < MAX_REDIRECTS) {
+                const redirectUrl = response.headers.location;
+                if (redirectUrl) {
+                    console.info(`302 Redirected to: ${redirectUrl}`);
+                    config.url = new URL(redirectUrl);  // Follow the redirect
+                    return resolve(makeCloudscraperRequest(config, retries, redirectCount + 1));
+                }
+            }
+
+            // Handle too many redirects
+            if (redirectCount >= MAX_REDIRECTS) {
+                return reject(new Error('Too many redirects, aborting request.'));
+            }
+
+            // Handle decompression
+            let decompressedBody;
+            try {
+                const contentEncoding = response.headers['content-encoding'];
+                decompressedBody = decompressBody(body, contentEncoding);
+            } catch (decompressionError) {
+                console.error('Decompression failed:', decompressionError);
+                return reject(new Error('Decompression failed'));
+            }
+
+            // Cache the successful response
+            requestCache.set(cacheKey, { headers: response.headers, data: decompressedBody });
+
+            // Reset the circuit breaker on success
+            circuitBreaker.reset();
+
+            // Successful request
+            resolve({ headers: response.headers, data: decompressedBody });
+        });
+    }));
 }
 
-// Helper function to send response
-async function sendResponse(res, data, headers) {
-  if (!data) {
-    throw new Error('No data to send');
-  }
+// Proxy function to handle requests
+async function proxy(req, res) {
+    const config = {
+        url: new URL(req.params.url),
+        method: 'get',
+        headers: {
+            ...pick(req.headers, ['cookie', 'referer']),
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/*,*/*;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',  // Allow gzip, deflate, and Brotli compression
+            'Cache-Control': 'no-cache',
+            'DNT': '1',
+            'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
+            'Connection': 'keep-alive',
+        },
+        timeout: 5000,
+        maxRedirects: 5,
+        responseType: 'arraybuffer',
+        validateStatus: status => status < 500,
+    };
 
-  // Security headers
-  res.setHeader('Content-Security-Policy', CONSTANTS.HEADERS.SECURITY.CSP);
-  res.setHeader('Strict-Transport-Security', CONSTANTS.HEADERS.SECURITY.HSTS);
-  
-  // Copy and sanitize headers
-  copyHeaders(headers, res, {
-    additionalExcludedHeaders: ['x-custom-header'],
-    transformFunction: (key, value) => key === 'x-transform-header' ? value.toUpperCase() : value,
-    overwriteExisting: false,
-    mergeArrays: true
-  });
+    try {
+        let originResponse;
 
-  try {
-    // Determine compression method
-    const acceptEncoding = res.req.headers['accept-encoding'] || '';
-    let compressedData = data;
-    
-    if (shouldCompress(res.req, data)) {
-      if (acceptEncoding.includes('br')) {
-        compressedData = await compressionUtils.compress(data, 'br');
-        res.setHeader('Content-Encoding', 'br');
-      } else if (acceptEncoding.includes('gzip')) {
-        compressedData = await compressionUtils.compress(data, 'gzip');
-        res.setHeader('Content-Encoding', 'gzip');
-      } else if (acceptEncoding.includes('deflate')) {
-        compressedData = await compressionUtils.compress(data, 'deflate');
-        res.setHeader('Content-Encoding', 'deflate');
-      }
+        // First attempt regular request (either HTTP/1 or HTTP/2)
+        if (config.url.protocol === 'http2:') {
+            originResponse = await makeHttp2Request(config);
+        } else {
+            originResponse = await makeRequest(config); // Use the rate-limited request
+        }
+
+        // Check for Cloudflare status codes
+        if (originResponse.status === 403 || originResponse.status === 503) {
+            console.log('Cloudflare detected, retrying with cloudscraper...');
+            originResponse = await makeCloudscraperRequest(config); // Fallback to cloudscraper
+        }
+
+        const { headers, data } = originResponse;
+        const contentEncoding = headers['content-encoding'];
+        let decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
+
+        // Validate decompressedData
+        if (!decompressedData) {
+            throw new Error('Decompression failed or no data received');
+        }
+
+        // Compression Optimization: Choose the best compression method based on Accept-Encoding header
+        const acceptedEncodings = req.headers['accept-encoding'] || '';
+        if (shouldCompress(req, decompressedData)) {
+            if (acceptedEncodings.includes('br')) {
+                decompressedData = compressionMethods.br(decompressedData);
+                res.setHeader('Content-Encoding', 'br');
+            } else if (acceptedEncodings.includes('gzip')) {
+                decompressedData = compressionMethods.gzip(decompressedData);
+                res.setHeader('Content-Encoding', 'gzip');
+            } else if (acceptedEncodings.includes('deflate')) {
+                decompressedData = compressionMethods.deflate(decompressedData);
+                res.setHeader('Content-Encoding', 'deflate');
+            } else {
+                res.setHeader('Content-Encoding', 'identity');
+            }
+        }
+
+
+        // Copy headers and send response
+        copyHeaders(originResponse, res, {
+            additionalExcludedHeaders: ['x-custom-header'],
+            transformFunction: (key, value) => key === 'x-transform-header' ? value.toUpperCase() : value,
+            overwriteExisting: false,
+            mergeArrays: true
+        });
+
+        // Security Enhancement: Add HTTPS enforcement
+        if (req.headers['x-forwarded-proto'] !== 'https') {
+            res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+            res.redirect(301, `https://${req.headers.host}${req.url}`);
+            return;
+        }
+
+        // Security Enhancement: Content Security Policy
+        res.setHeader('Content-Security-Policy', "default-src 'self'; img-src *; media-src *; script-src 'none'; object-src 'none';");
+
+        // Set additional headers
+        res.set('X-Proxy', 'Cloudflare Worker');
+        res.set('Access-Control-Allow-Origin', '*'); // Allow CORS if needed
+
+        res.setHeader('content-encoding', 'identity');
+        req.params.originType = headers['content-type'] || '';
+        req.params.originSize = decompressedData.length;
+
+        if (shouldCompress(req, decompressedData)) {
+            compress(req, res, decompressedData);
+        } else {
+            bypass(req, res, decompressedData);
+        }
+    } catch (error) {
+        if (error.response) {
+            console.error(`Server responded with status: ${error.response.status}`);
+        } else if (error.request) {
+            console.error('No response received:', error.request);
+        } else {
+            console.error('Error setting up request:', error.message);
+        }
+        redirect(req, res);
     }
-
-    res.end(compressedData);
-    
-  } catch (error) {
-    console.error('Error sending response:', error);
-    throw error;
-  }
 }
-
-// Clean up resources periodically
-setInterval(() => {
-  requestCache.clear();
-  if (global.gc) global.gc();
-}, 3600000); // Every hour
 
 module.exports = proxy;
