@@ -57,7 +57,7 @@ async function compress(req, res, input) {
     const outputFormat = isAnimated ? 'webp' : format;
 
     // Calculate optimization parameters
-    const compressionQuality = adjustCompressionQuality(pixelCount, size, quality);
+    const compressionQuality = req.params.quality;
     const avifParams = optimizeAvifParams(width, height);
 
     // Reset sharp instance for processing
@@ -152,22 +152,6 @@ function optimizeAvifParams(width, height) {
     maxQuantizer: 48,
     effort: 4
   };
-}
-
-function adjustCompressionQuality(pixelCount, size, quality) {
-  const pixelFactor = 1.5;
-  const sizeFactor = 0.002;
-  const baseQuality = Math.min(quality, 100);
-
-  const pixelSizeScale = Math.log10(Math.max(pixelCount / 1e6, 1));
-  const sizeScale = Math.log2(Math.max(size / 1e6, 1));
-
-  const adjustedQuality = Math.max(
-    baseQuality - (pixelSizeScale * pixelFactor + sizeScale * sizeFactor) * baseQuality,
-    40
-  );
-
-  return Math.ceil(adjustedQuality);
 }
 
 function applyArtifactReduction(sharpInstance, pixelCount) {
