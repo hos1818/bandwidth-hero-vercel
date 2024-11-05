@@ -250,7 +250,7 @@ async function proxy(req, res) {
         }
 
         const { headers, data } = originResponse;
-        const contentEncoding = req.headers['content-encoding'];
+        const contentEncoding = headers['content-encoding'];
         const decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
 
         // Validate decompressedData
@@ -262,20 +262,17 @@ async function proxy(req, res) {
         const acceptedEncodings = req.headers['accept-encoding'] || '';
         if (shouldCompress(req, decompressedData)) {
             if (acceptedEncodings.includes('br')) {
+                decompressedData = compressionMethods.br(decompressedData);
                 res.setHeader('Content-Encoding', 'br');
-                res.write(await compressionMethods.br(decompressedData));
             } else if (acceptedEncodings.includes('gzip')) {
+                decompressedData = compressionMethods.gzip(decompressedData);
                 res.setHeader('Content-Encoding', 'gzip');
-                res.write(await compressionMethods.gzip(decompressedData));
             } else if (acceptedEncodings.includes('deflate')) {
+                decompressedData = compressionMethods.deflate(decompressedData);
                 res.setHeader('Content-Encoding', 'deflate');
-                res.write(await compressionMethods.deflate(decompressedData));
             } else {
                 res.setHeader('Content-Encoding', 'identity');
-                res.write(decompressedData);
             }
-        } else {
-            res.write(decompressedData);
         }
 
 
