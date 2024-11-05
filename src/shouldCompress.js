@@ -7,7 +7,8 @@
 const CONFIG = Object.freeze({
   DEFAULT_MIN_COMPRESS_LENGTH: 512,
   get MIN_COMPRESS_LENGTH() {
-    return parseInt(process.env.MIN_COMPRESS_LENGTH, 10) || this.DEFAULT_MIN_COMPRESS_LENGTH;
+    const minLength = parseInt(process.env.MIN_COMPRESS_LENGTH, 10);
+    return Number.isNaN(minLength) ? this.DEFAULT_MIN_COMPRESS_LENGTH : minLength;
   },
   get MIN_TRANSPARENT_COMPRESS_LENGTH() {
     return this.MIN_COMPRESS_LENGTH * 50;
@@ -188,10 +189,8 @@ function shouldCompress(req, buffer) {
 }
 
 // Clean up the cache periodically
-setInterval(() => {
-  if (global.gc) {
-    global.gc();
-  }
-}, 30 * 60 * 1000); // Run every 30 minutes
+if (global.gc) {
+  setInterval(() => global.gc(), 30 * 60 * 1000);
+}
 
 module.exports = shouldCompress;
