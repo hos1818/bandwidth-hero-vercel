@@ -82,17 +82,38 @@ const isBelowSizeThresholdForCompression = (originType, originSize, webp) => {
  * @returns {boolean}
  */
 const isSmallAnimatedPng = (originType, buffer, originSize) => {
+  // Check if the file is PNG and if it meets the size criteria
   if (!originType.endsWith('png') || originSize >= CONFIG.APNG_THRESH_LENGTH) {
     return false;
   }
 
-  // Check cache first
+  // Check the cache first
   if (animatedCache.has(buffer)) {
     return animatedCache.get(buffer);
   }
 
+  // Helper function to find the APNG signature in the buffer
+  const isAnimatedPng = (buffer) => {
+    const acTLChunk = Buffer.from('acTL', 'ascii'); // Chunk identifier for animated PNGs
+    let index = 8;  // Start after the PNG signature (first 8 bytes)
+
+    // Parse chunks in the PNG file
+    while (index < buffer.length) {
+      const chunkLength = buffer.readUInt32BE(index);
+      const chunkType = buffer.slice(index + 4, index + 8);
+
+      if (chunkType.equals(acTLChunk)) {
+        return true;  // Animated PNG detected
+      }
+
+      index += 8 + chunkLength + 4;  // Move to the next chunk (length + type + data + CRC)
+    }
+
+    return false;
+  };
+
   try {
-    const isAnimatedResult = require('is-animated')(buffer);
+    const isAnimatedResult = isAnimatedPng(buffer);
     animatedCache.set(buffer, isAnimatedResult);
     return isAnimatedResult;
   } catch (error) {
@@ -100,6 +121,7 @@ const isSmallAnimatedPng = (originType, buffer, originSize) => {
     return false;
   }
 };
+
 
 /**
  * Checks if the image size is below threshold for compression
