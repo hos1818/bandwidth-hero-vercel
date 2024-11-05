@@ -113,11 +113,12 @@ function decompressBody(body, encoding) {
     }
 }
 
-// Enhanced cloudscraper handling function
+// Makes cloudscraper requests with retry and circuit breaker
 async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
     const MAX_REDIRECTS = 5;
-    const MAX_RETRIES = 3;
+    if (circuitBreaker.isOpen()) throw new Error('Circuit breaker is open, aborting requests.');
 
+    const cacheKey = config.url.href;
     const ciphers = [
         'ECDHE-ECDSA-AES128-GCM-SHA256',
         'ECDHE-RSA-AES128-GCM-SHA256',
@@ -130,27 +131,10 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
     const agent = new https.Agent({
         ciphers,
         honorCipherOrder: true,
-        secureOptions: https.constants.SSL_OP_NO_TLSv1 | https.constants.SSL_OP_NO_TLSv1_1,
+        secureOptions: SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1,
         keepAlive: true,
     });
 
-    // Exponential backoff with jitter
-    const retryRequest = async (delay, retryAttempt) => {
-        const jitter = Math.random() * 1000;
-        const backoffTime = delay * Math.pow(2, retryAttempt) + jitter;
-        console.warn(`Retrying in ${backoffTime.toFixed(0)}ms...`);
-        return new Promise((resolve) => setTimeout(resolve, backoffTime))
-            .then(() => makeCloudscraperRequest(config, retries - 1, redirectCount));
-    };
-
-    // Check circuit breaker
-    if (circuitBreaker.isOpen()) {
-        console.error('Circuit is open, aborting request.');
-        throw new Error('Circuit breaker is open, aborting requests.');
-    }
-
-    // Caching logic: check cache first
-    const cacheKey = config.url.href;
     if (requestCache.has(cacheKey)) {
         console.log('Serving response from cache');
         return requestCache.get(cacheKey);
@@ -161,72 +145,27 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
             uri: config.url.href,
             headers: config.headers,
             gzip: true,
-            encoding: null,  // Raw buffer data
-            agentOptions: {
-                httpsAgent: agent,
-                proxy: config.proxy || null,
-            },
-            timeout: config.timeout || 10000
+            encoding: null,
+            agentOptions: { httpsAgent: agent },
+            timeout: config.timeout || 10000,
         }, async (error, response, body) => {
             if (error) {
-                circuitBreaker.recordFailure();  // Record failure for circuit breaker
-                if (retries > 0) {
-                    return resolve(await retryRequest(1000, MAX_RETRIES - retries));  // Retry with backoff
-                }
-                console.error(`Cloudscraper failed: ${error.message}`);
-                return reject(new Error('Cloudscraper Request Failed'));
+                circuitBreaker.recordFailure();
+                return retries > 0 ? resolve(await makeCloudscraperRequest(config, retries - 1, redirectCount)) : reject(new Error('Cloudscraper request failed'));
             }
 
-            const { statusCode } = response;
-            
-            // Handle Cloudflare challenges
-            if (response.headers['cf-mitigated']) {
-                console.warn('Cloudflare challenge detected, retrying with cloudscraper...');
-                return resolve(await retryRequest(2000, MAX_RETRIES - retries));
+            if (response.statusCode === 302 && redirectCount < MAX_REDIRECTS) {
+                config.url = new URL(response.headers.location);
+                return resolve(makeCloudscraperRequest(config, retries, redirectCount + 1));
             }
 
-            // Handle 403 Forbidden or Cloudflare retries
-            if (statusCode === 403) {
-                if (retries > 0) {
-                    console.warn(`403 Forbidden. Retrying... Attempts left: ${retries}`);
-                    return resolve(await retryRequest(2000, MAX_RETRIES - retries));
-                }
-                console.error('Cloudflare returned 403, maximum retries reached.');
-                return reject(new Error('Cloudscraper Request Blocked by Cloudflare'));
-            }
+            if (redirectCount >= MAX_REDIRECTS) return reject(new Error('Too many redirects'));
 
-            // Handle redirects (302)
-            if (statusCode === 302 && redirectCount < MAX_REDIRECTS) {
-                const redirectUrl = response.headers.location;
-                if (redirectUrl) {
-                    console.info(`302 Redirected to: ${redirectUrl}`);
-                    config.url = new URL(redirectUrl);  // Follow the redirect
-                    return resolve(makeCloudscraperRequest(config, retries, redirectCount + 1));
-                }
-            }
-
-            // Handle too many redirects
-            if (redirectCount >= MAX_REDIRECTS) {
-                return reject(new Error('Too many redirects, aborting request.'));
-            }
-
-            // Handle decompression
-            let decompressedBody;
-            try {
-                const contentEncoding = response.headers['content-encoding'];
-                decompressedBody = decompressBody(body, contentEncoding);
-            } catch (decompressionError) {
-                console.error('Decompression failed:', decompressionError);
-                return reject(new Error('Decompression failed'));
-            }
-
-            // Cache the successful response
+            const contentEncoding = response.headers['content-encoding'];
+            const decompressedBody = await decompress(body, contentEncoding);
             requestCache.set(cacheKey, { headers: response.headers, data: decompressedBody });
-
-            // Reset the circuit breaker on success
             circuitBreaker.reset();
 
-            // Successful request
             resolve({ headers: response.headers, data: decompressedBody });
         });
     }));
