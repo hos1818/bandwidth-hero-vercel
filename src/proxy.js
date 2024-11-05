@@ -126,6 +126,7 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
     const agent = new https.Agent({
         ciphers,
         honorCipherOrder: true,
+        secureOptions: https.constants.SSL_OP_NO_TLSv1 | https.constants.SSL_OP_NO_TLSv1_1,
         keepAlive: true,
     });
 
@@ -140,12 +141,14 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
 
     // Check circuit breaker
     if (circuitBreaker.isOpen()) {
+        console.error('Circuit is open, aborting request.');
         throw new Error('Circuit breaker is open, aborting requests.');
     }
 
     // Caching logic: check cache first
-    const cacheKey = `${config.url.href}_${JSON.stringify(config.headers)}`;
+    const cacheKey = config.url.href;
     if (requestCache.has(cacheKey)) {
+        console.log('Serving response from cache');
         return requestCache.get(cacheKey);
     }
 
@@ -166,21 +169,34 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
                 if (retries > 0) {
                     return resolve(await retryRequest(1000, MAX_RETRIES - retries));  // Retry with backoff
                 }
+                console.error(`Cloudscraper failed: ${error.message}`);
                 return reject(new Error('Cloudscraper Request Failed'));
             }
 
             const { statusCode } = response;
             
             // Handle Cloudflare challenges
-            if (statusCode === 403 && retries > 0) {
+            if (response.headers['cf-mitigated']) {
+                console.warn('Cloudflare challenge detected, retrying with cloudscraper...');
                 return resolve(await retryRequest(2000, MAX_RETRIES - retries));
+            }
+
+            // Handle 403 Forbidden or Cloudflare retries
+            if (statusCode === 403) {
+                if (retries > 0) {
+                    console.warn(`403 Forbidden. Retrying... Attempts left: ${retries}`);
+                    return resolve(await retryRequest(2000, MAX_RETRIES - retries));
+                }
+                console.error('Cloudflare returned 403, maximum retries reached.');
+                return reject(new Error('Cloudscraper Request Blocked by Cloudflare'));
             }
 
             // Handle redirects (302)
             if (statusCode === 302 && redirectCount < MAX_REDIRECTS) {
                 const redirectUrl = response.headers.location;
                 if (redirectUrl) {
-                    config.url = new URL(redirectUrl);
+                    console.info(`302 Redirected to: ${redirectUrl}`);
+                    config.url = new URL(redirectUrl);  // Follow the redirect
                     return resolve(makeCloudscraperRequest(config, retries, redirectCount + 1));
                 }
             }
@@ -196,6 +212,7 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
                 const contentEncoding = response.headers['content-encoding'];
                 decompressedBody = decompressBody(body, contentEncoding);
             } catch (decompressionError) {
+                console.error('Decompression failed:', decompressionError);
                 return reject(new Error('Decompression failed'));
             }
 
