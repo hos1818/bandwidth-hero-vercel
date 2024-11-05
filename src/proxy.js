@@ -69,7 +69,7 @@ async function makeHttp2Request(config) {
 // Create a limiter with a maximum of 1 request every 2 seconds
 const limiter = new Bottleneck({
     maxConcurrent: 5,  // Limit to 5 concurrent requests
-    minTime: 2000      // Minimum time of 2 seconds between requests
+    minTime: 100      // Minimum time of 0.1 seconds between requests
 });
 
 async function makeRequest(config) {
