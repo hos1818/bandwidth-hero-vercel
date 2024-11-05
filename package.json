@@ -8,7 +8,7 @@
     "type": "git",
     "url": "https://github.com/username/repo"
   },
-  "packageManager": "pnpm@9.3.0",
+  "packageManager": "pnpm@latest",
   "scripts": {
     "start": "node server.js"
   },
@@ -17,7 +17,6 @@
     "express": "^4.21.0",
     "got": "^14.4.2",
     "axios": "^1.7.7",
-    "http2-wrapper": "^2.2.1",
     "lodash": "^4.17.21",
     "sharp": "^0.33.5",
     "lzma-native": "^8.0.6",
