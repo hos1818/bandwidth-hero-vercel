@@ -2,6 +2,7 @@
 'use strict'
 const express = require('express')
 const morgan = require('morgan')
+const helmet = require('helmet')
 const authenticate = require('./src/authenticate')
 const params = require('./src/params')
 const proxy = require('./src/proxy')
