@@ -47,13 +47,13 @@ async function forwardWithoutProcessing(req, res, buffer) {
   // Compression support based on client accepted encoding (using async compression)
   const acceptedEncodings = req.headers['accept-encoding'] || '';
 
-  if (acceptedEncodings.includes('br') && zlib.promises.brotliCompress) {
+  if (acceptedEncodings.includes('br') && zlib.promises.BrotliCompress) {
     // Use Brotli if the client accepts it and it’s supported in the environment
-    buffer = await zlib.promises.brotliCompress(buffer);
+    buffer = await zlib.promises.BrotliCompress(buffer);
     res.setHeader('Content-Encoding', 'br');
   } else if (acceptedEncodings.includes('gzip')) {
     // Fallback to gzip if Brotli is not available or not supported
-    buffer = await zlib.promises.gzip(buffer);
+    buffer = await zlib.promises.Gzip(buffer);
     res.setHeader('Content-Encoding', 'gzip');
   } else {
     // Default to identity encoding if no supported compression is available
