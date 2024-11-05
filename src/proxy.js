@@ -58,7 +58,7 @@ async function decompress(data, encoding) {
     }
 }
 
-// HTTP/2 request handling
+// Makes HTTP/2 requests
 async function makeHttp2Request(config) {
     return new Promise((resolve, reject) => {
         const client = http2.connect(config.url.origin);
@@ -71,14 +71,9 @@ async function makeHttp2Request(config) {
 
         const req = client.request(headers);
         let data = [];
-
-        req.on('response', (headers) => {
-            data = []; // Clear data on each new response
-        });
         req.on('data', chunk => data.push(chunk));
         req.on('end', () => resolve(Buffer.concat(data)));
         req.on('error', err => reject(err));
-
         req.end();
     });
 }
@@ -97,18 +92,14 @@ async function makeRequest(config) {
 // Caching logic (simple in-memory cache, could be replaced with Redis or similar)
 const requestCache = new Map();
 
-// Circuit breaker settings
+// Circuit breaker
 const circuitBreaker = {
-    failureThreshold: 5,  // Number of failures before opening the circuit
-    resetTimeout: 60000,  // Time in ms to wait before retrying after the circuit opens
+    failureThreshold: 5,
+    resetTimeout: 60000,
     failureCount: 0,
     lastFailureTime: null,
     isOpen() {
-        const now = Date.now();
-        if (this.failureCount >= this.failureThreshold && now - this.lastFailureTime < this.resetTimeout) {
-            return true;  // Circuit is open, stop making requests
-        }
-        return false;  // Circuit is closed, allow requests
+        return this.failureCount >= this.failureThreshold && Date.now() - this.lastFailureTime < this.resetTimeout;
     },
     recordFailure() {
         this.failureCount++;
