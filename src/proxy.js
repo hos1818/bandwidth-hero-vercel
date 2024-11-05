@@ -16,8 +16,8 @@ const cloudscraper = require('cloudscraper');
 
 
 // Safely access SSL options with a fallback for older Node.js versions
-const SSL_OP_NO_TLSv1 = https.constants?.SSL_OP_NO_TLSv1 || 0x04000000;
-const SSL_OP_NO_TLSv1_1 = https.constants?.SSL_OP_NO_TLSv1_1 || 0x10000000;
+const SSL_OP_NO_TLSv1 = https.constants?.SSL_OP_NO_TLSv1_1 || 0x10000000;
+const SSL_OP_NO_TLSv1_1 = https.constants?.SSL_OP_NO_TLSv1_2 || 0x08000000;
 
 // Compression formats based on client support
 const compressionMethods = {
