@@ -26,36 +26,24 @@ const compressionMethods = {
     deflate: (data) => zlib.deflateSync(data)
 };
 
-// Decompression utility function
+// Helper for decompression based on encoding
 async function decompress(data, encoding) {
     const decompressors = {
         gzip: () => zlib.promises.gunzip(data),
         br: () => zlib.promises.brotliDecompress(data),
         deflate: () => zlib.promises.inflate(data),
-        lzma: () => new Promise((resolve, reject) => {
-            lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result));
-        }),
-        lzma2: () => new Promise((resolve, reject) => {
-            lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result));
-        }),
+        lzma: () => new Promise((resolve, reject) => lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result))),
         zstd: () => new Promise((resolve, reject) => {
             ZstdCodec.run(zstd => {
                 try {
-                    const simple = new zstd.Simple();
-                    resolve(simple.decompress(data));
+                    resolve(new zstd.Simple().decompress(data));
                 } catch (error) {
                     reject(error);
                 }
             });
-        }),
+        })
     };
-
-    if (decompressors[encoding]) {
-        return decompressors[encoding]();
-    } else {
-        console.warn(`Unknown content-encoding: ${encoding}`);
-        return data;
-    }
+    return decompressors[encoding] ? decompressors[encoding]() : data;
 }
 
 // Makes HTTP/2 requests
