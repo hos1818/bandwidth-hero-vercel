@@ -26,7 +26,7 @@ async function forwardWithoutProcessing(req, res, buffer) {
   res.setHeader('Content-Security-Policy', "default-src 'self'; img-src *;"); // Basic CSP header.
 
   // Log request metadata for better traceability.
-  console.log(`Forwarding: ${url} | IP: ${req.ip} | User-Agent: ${req.headers['user-agent']}`);
+  console.log(`Forwarding: ${req.params.url} | IP: ${req.ip} | User-Agent: ${req.headers['user-agent']}`);
 
   // Safely extract filename from URL for Content-Disposition
   let filename;
@@ -65,7 +65,7 @@ async function forwardWithoutProcessing(req, res, buffer) {
   // Stream the buffer to the response
   stream.PassThrough().end(buffer).pipe(res);
 
-  console.log(`Forwarded without processing: ${url} | Response Time: ${Date.now() - req.startTime}ms`);
+  console.log(`Forwarded without processing: ${req.params.url} | Response Time: ${Date.now() - req.startTime}ms`);
 }
 
 module.exports = forwardWithoutProcessing;  
