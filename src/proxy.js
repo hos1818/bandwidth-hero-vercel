@@ -10,14 +10,11 @@ const bypass = require('./bypass');
 const copyHeaders = require('./copyHeaders');
 const http2 = require('node:http2');
 const https = require('node:https');
+const { constants } = require('node:crypto')
 const { URL } = require('node:url');
 const Bottleneck = require('bottleneck');
 const cloudscraper = require('cloudscraper');
 
-
-// Safely access SSL options with a fallback for older Node.js versions
-const SSL_OP_NO_TLSv1 = https.constants?.SSL_OP_NO_TLSv1_1 || 0x10000000;
-const SSL_OP_NO_TLSv1_1 = https.constants?.SSL_OP_NO_TLSv1_2 || 0x08000000;
 
 // Compression formats based on client support
 const compressionMethods = {
@@ -130,7 +127,7 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
     const agent = new https.Agent({
         ciphers,
         honorCipherOrder: true,
-        secureOptions: https.constants.SSL_OP_NO_TLSv1 | https.constants.SSL_OP_NO_TLSv1_1,
+        secureOptions: constants.SSL_OP_NO_TLSv1 | constants.SSL_OP_NO_TLSv1_1,
         keepAlive: true,
     });
 
