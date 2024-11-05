@@ -17,9 +17,9 @@ const cloudscraper = require('cloudscraper');
 
 // Compression formats based on client support
 const compressionMethods = {
-    gzip: (data) => zlib.gzipSync(data),
-    br: (data) => zlib.brotliCompressSync(data),
-    deflate: (data) => zlib.deflateSync(data)
+    gzip: (data) => zlib.promises.gzip(data),
+    br: (data) => zlib.promises.brotliCompress(data),
+    deflate: (data) => zlib.promises.deflate(data)
 };
 
 // Helper for decompression based on encoding
@@ -39,7 +39,7 @@ async function decompress(data, encoding) {
             });
         })
     };
-    return decompressors[encoding] ? decompressors[encoding]() : data;
+    return decompressors[encoding] ? await decompressors[encoding]() : data;
 }
 
 // Makes HTTP/2 requests
@@ -126,7 +126,6 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
     const agent = new https.Agent({
         ciphers,
         honorCipherOrder: true,
-        secureOptions: https.constants.SSL_OP_NO_TLSv1 | https.constants.SSL_OP_NO_TLSv1_1,
         keepAlive: true,
     });
 
@@ -141,14 +140,12 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
 
     // Check circuit breaker
     if (circuitBreaker.isOpen()) {
-        console.error('Circuit is open, aborting request.');
         throw new Error('Circuit breaker is open, aborting requests.');
     }
 
     // Caching logic: check cache first
-    const cacheKey = config.url.href;
+    const cacheKey = `${config.url.href}_${JSON.stringify(config.headers)}`;
     if (requestCache.has(cacheKey)) {
-        console.log('Serving response from cache');
         return requestCache.get(cacheKey);
     }
 
@@ -169,34 +166,21 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
                 if (retries > 0) {
                     return resolve(await retryRequest(1000, MAX_RETRIES - retries));  // Retry with backoff
                 }
-                console.error(`Cloudscraper failed: ${error.message}`);
                 return reject(new Error('Cloudscraper Request Failed'));
             }
 
             const { statusCode } = response;
             
             // Handle Cloudflare challenges
-            if (response.headers['cf-mitigated']) {
-                console.warn('Cloudflare challenge detected, retrying with cloudscraper...');
+            if (statusCode === 403 && retries > 0) {
                 return resolve(await retryRequest(2000, MAX_RETRIES - retries));
-            }
-
-            // Handle 403 Forbidden or Cloudflare retries
-            if (statusCode === 403) {
-                if (retries > 0) {
-                    console.warn(`403 Forbidden. Retrying... Attempts left: ${retries}`);
-                    return resolve(await retryRequest(2000, MAX_RETRIES - retries));
-                }
-                console.error('Cloudflare returned 403, maximum retries reached.');
-                return reject(new Error('Cloudscraper Request Blocked by Cloudflare'));
             }
 
             // Handle redirects (302)
             if (statusCode === 302 && redirectCount < MAX_REDIRECTS) {
                 const redirectUrl = response.headers.location;
                 if (redirectUrl) {
-                    console.info(`302 Redirected to: ${redirectUrl}`);
-                    config.url = new URL(redirectUrl);  // Follow the redirect
+                    config.url = new URL(redirectUrl);
                     return resolve(makeCloudscraperRequest(config, retries, redirectCount + 1));
                 }
             }
@@ -212,7 +196,6 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
                 const contentEncoding = response.headers['content-encoding'];
                 decompressedBody = decompressBody(body, contentEncoding);
             } catch (decompressionError) {
-                console.error('Decompression failed:', decompressionError);
                 return reject(new Error('Decompression failed'));
             }
 
@@ -261,14 +244,14 @@ async function proxy(req, res) {
         }
 
         // Check for Cloudflare status codes
-        if (originResponse.status === 403 || originResponse.status === 503) {
+        if ([403, 503].includes(originResponse.status)) {
             console.log('Cloudflare detected, retrying with cloudscraper...');
             originResponse = await makeCloudscraperRequest(config); // Fallback to cloudscraper
         }
 
         const { headers, data } = originResponse;
-        const contentEncoding = headers['content-encoding'];
-        let decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
+        const contentEncoding = req.headers['content-encoding'];
+        const decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
 
         // Validate decompressedData
         if (!decompressedData) {
@@ -279,17 +262,20 @@ async function proxy(req, res) {
         const acceptedEncodings = req.headers['accept-encoding'] || '';
         if (shouldCompress(req, decompressedData)) {
             if (acceptedEncodings.includes('br')) {
-                decompressedData = compressionMethods.br(decompressedData);
                 res.setHeader('Content-Encoding', 'br');
+                res.write(await compressionMethods.br(decompressedData));
             } else if (acceptedEncodings.includes('gzip')) {
-                decompressedData = compressionMethods.gzip(decompressedData);
                 res.setHeader('Content-Encoding', 'gzip');
+                res.write(await compressionMethods.gzip(decompressedData));
             } else if (acceptedEncodings.includes('deflate')) {
-                decompressedData = compressionMethods.deflate(decompressedData);
                 res.setHeader('Content-Encoding', 'deflate');
+                res.write(await compressionMethods.deflate(decompressedData));
             } else {
                 res.setHeader('Content-Encoding', 'identity');
+                res.write(decompressedData);
             }
+        } else {
+            res.write(decompressedData);
         }
 
 
