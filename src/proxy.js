@@ -10,7 +10,6 @@ const bypass = require('./bypass');
 const copyHeaders = require('./copyHeaders');
 const http2 = require('node:http2');
 const https = require('node:https');
-const { constants } = require('node:crypto')
 const { URL } = require('node:url');
 const Bottleneck = require('bottleneck');
 const cloudscraper = require('cloudscraper');
@@ -127,7 +126,7 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
     const agent = new https.Agent({
         ciphers,
         honorCipherOrder: true,
-        secureOptions: constants.SSL_OP_NO_TLSv1 | constants.SSL_OP_NO_TLSv1_1,
+        secureOptions: https.constants.SSL_OP_NO_TLSv1 | https.constants.SSL_OP_NO_TLSv1_1,
         keepAlive: true,
     });
 
