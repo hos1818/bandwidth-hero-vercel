@@ -1,7 +1,7 @@
 const { URL } = require('url');
-const stream = require('node:stream');
+const stream = require('stream');
 const path = require('path'); // Use path module to handle file path securely.
-const zlib = require('node:zlib');
+const zlib = require('zlib');
 const crypto = require('crypto');
 
 /**
@@ -46,13 +46,17 @@ async function forwardWithoutProcessing(req, res, buffer) {
 
   // Compression support based on client accepted encoding (using async compression)
   const acceptedEncodings = req.headers['accept-encoding'] || '';
-  if (acceptedEncodings.includes('br')) {
+
+  if (acceptedEncodings.includes('br') && zlib.promises.brotliCompress) {
+    // Use Brotli if the client accepts it and it’s supported in the environment
     buffer = await zlib.promises.brotliCompress(buffer);
     res.setHeader('Content-Encoding', 'br');
   } else if (acceptedEncodings.includes('gzip')) {
+    // Fallback to gzip if Brotli is not available or not supported
     buffer = await zlib.promises.gzip(buffer);
     res.setHeader('Content-Encoding', 'gzip');
   } else {
+    // Default to identity encoding if no supported compression is available
     res.setHeader('Content-Encoding', 'identity');
   }
 
