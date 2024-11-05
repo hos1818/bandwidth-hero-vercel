@@ -2,6 +2,7 @@ const { URL } = require('url');
 const stream = require('node:stream');
 const path = require('path'); // Use path module to handle file path securely.
 const zlib = require('node:zlib');
+const crypto = require('crypto');
 
 /**
  * Forwards a buffer to the response without additional processing.
@@ -38,17 +39,18 @@ async function forwardWithoutProcessing(req, res, buffer) {
   }
 
   // Set Content-Disposition header, default to "inline".
+  const originType = req.params.originType || '';
   const dispositionType = originType.startsWith('image') ? 'inline' : 'attachment';
   res.setHeader('Content-Disposition', `${dispositionType}; filename="${filename}"`);
 
 
-  // Compression support based on client accepted encoding
+  // Compression support based on client accepted encoding (using async compression)
   const acceptedEncodings = req.headers['accept-encoding'] || '';
   if (acceptedEncodings.includes('br')) {
-    buffer = zlib.brotliCompressSync(buffer);
+    buffer = await zlib.promises.brotliCompress(buffer);
     res.setHeader('Content-Encoding', 'br');
   } else if (acceptedEncodings.includes('gzip')) {
-    buffer = zlib.gzipSync(buffer);
+    buffer = await zlib.promises.gzip(buffer);
     res.setHeader('Content-Encoding', 'gzip');
   } else {
     res.setHeader('Content-Encoding', 'identity');
@@ -56,14 +58,23 @@ async function forwardWithoutProcessing(req, res, buffer) {
 
   // Set Content-Length and ETag for caching and conditional requests
   res.setHeader('Content-Length', buffer.length);
-  const eTag = `"${Buffer.from(buffer).toString('base64')}"`;
+
+  const eTag = `"${crypto.createHash('sha1').update(buffer).digest('base64')}"`;
   res.setHeader('ETag', eTag);
   if (req.headers['if-none-match'] === eTag) {
-    return res.status(304).end();
+    res.status(304).end();
+    return;
   }
 
-  // Stream the buffer to the response
-  stream.PassThrough().end(buffer).pipe(res);
+  // Stream the buffer to the response with error handling
+  const bufferStream = new stream.PassThrough();
+  bufferStream.end(buffer);
+  bufferStream.pipe(res).on('error', (err) => {
+    console.error('Error in response stream:', err);
+    if (!res.headersSent) {
+      res.status(500).send("Internal Server Error");
+    }
+  });
 
   console.log(`Forwarded without processing: ${req.params.url} | Response Time: ${Date.now() - req.startTime}ms`);
 }
