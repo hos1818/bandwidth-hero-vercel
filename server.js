@@ -9,6 +9,13 @@ const proxy = require('./src/proxy')
 const app = express()
 const PORT = process.env.PORT || 443
 
+// Use specific helmet modules to avoid conflicts on Vercel
+app.use(helmet.hidePoweredBy());
+app.use(helmet.xssFilter());
+app.use(helmet.noSniff());
+app.use(helmet.ieNoOpen());
+app.use(helmet.frameguard({ action: 'deny' }));
+
 // HTTP request logging
 app.use(morgan('combined'))
 
