@@ -31,7 +31,8 @@ async function forwardWithoutProcessing(req, res, buffer) {
   // Safely extract filename from URL for Content-Disposition
   let filename;
   try {
-    filename = decodeURIComponent(path.basename(new URL(url).pathname));
+    const urlPath = new URL(req.params.url).pathname;
+    filename = decodeURIComponent(path.basename(urlPath)); // Safely decode and sanitize the filename.
   } catch {
     return res.status(400).send("Bad Request: Invalid URL");
   }
