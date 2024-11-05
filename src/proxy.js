@@ -3,62 +3,50 @@ const { pick } = require('lodash');
 const zlib = require('node:zlib');
 const lzma = require('lzma-native');
 const { ZstdCodec } = require('zstd-codec');
+const Bottleneck = require('bottleneck');
+const cloudscraper = require('cloudscraper');
+const https = require('node:https');
+const { URL } = require('node:url');
 const shouldCompress = require('./shouldCompress');
 const redirect = require('./redirect');
 const compress = require('./compress');
 const bypass = require('./bypass');
 const copyHeaders = require('./copyHeaders');
 const http2 = require('node:http2');
-const https = require('node:https');
-const { URL } = require('node:url');
-const Bottleneck = require('bottleneck');
-const cloudscraper = require('cloudscraper');
 
 
-// Safely access SSL options with a fallback for older Node.js versions
-const SSL_OP_NO_TLSv1 = https.constants ? https.constants.SSL_OP_NO_TLSv1 : 0x04000000;  // Fallback value
-const SSL_OP_NO_TLSv1_1 = https.constants ? https.constants.SSL_OP_NO_TLSv1_1 : 0x10000000;  // Fallback value
+// SSL options for legacy support
+const SSL_OP_NO_TLSv1 = https.constants?.SSL_OP_NO_TLSv1 || 0x04000000;
+const SSL_OP_NO_TLSv1_1 = https.constants?.SSL_OP_NO_TLSv1_1 || 0x10000000;
 
-// Compression formats based on client support
+// Compression methods
 const compressionMethods = {
     gzip: (data) => zlib.gzipSync(data),
     br: (data) => zlib.brotliCompressSync(data),
-    deflate: (data) => zlib.deflateSync(data)
+    deflate: (data) => zlib.deflateSync(data),
 };
 
-// Decompression utility function
+// Helper for decompression based on encoding
 async function decompress(data, encoding) {
     const decompressors = {
         gzip: () => zlib.promises.gunzip(data),
         br: () => zlib.promises.brotliDecompress(data),
         deflate: () => zlib.promises.inflate(data),
-        lzma: () => new Promise((resolve, reject) => {
-            lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result));
-        }),
-        lzma2: () => new Promise((resolve, reject) => {
-            lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result));
-        }),
+        lzma: () => new Promise((resolve, reject) => lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result))),
         zstd: () => new Promise((resolve, reject) => {
             ZstdCodec.run(zstd => {
                 try {
-                    const simple = new zstd.Simple();
-                    resolve(simple.decompress(data));
+                    resolve(new zstd.Simple().decompress(data));
                 } catch (error) {
                     reject(error);
                 }
             });
-        }),
+        })
     };
-
-    if (decompressors[encoding]) {
-        return decompressors[encoding]();
-    } else {
-        console.warn(`Unknown content-encoding: ${encoding}`);
-        return data;
-    }
+    return decompressors[encoding] ? decompressors[encoding]() : data;
 }
 
-// HTTP/2 request handling
+// Makes HTTP/2 requests
 async function makeHttp2Request(config) {
     return new Promise((resolve, reject) => {
         const client = http2.connect(config.url.origin);
@@ -71,24 +59,17 @@ async function makeHttp2Request(config) {
 
         const req = client.request(headers);
         let data = [];
-
-        req.on('response', (headers) => {
-            data = []; // Clear data on each new response
-        });
         req.on('data', chunk => data.push(chunk));
         req.on('end', () => resolve(Buffer.concat(data)));
         req.on('error', err => reject(err));
-
         req.end();
     });
 }
 
-// Create a limiter with a maximum of 1 request every 2 seconds
-const limiter = new Bottleneck({
-    maxConcurrent: 5,  // Limit to 5 concurrent requests
-    minTime: 2000      // Minimum time of 2 seconds between requests
-});
+// Rate limiter for requests
+const limiter = new Bottleneck({ maxConcurrent: 5, minTime: 2000 });
 
+// Make request with axios
 async function makeRequest(config) {
     return limiter.schedule(() => axios(config));
 }
@@ -97,18 +78,14 @@ async function makeRequest(config) {
 // Caching logic (simple in-memory cache, could be replaced with Redis or similar)
 const requestCache = new Map();
 
-// Circuit breaker settings
+// Circuit breaker
 const circuitBreaker = {
-    failureThreshold: 5,  // Number of failures before opening the circuit
-    resetTimeout: 60000,  // Time in ms to wait before retrying after the circuit opens
+    failureThreshold: 5,
+    resetTimeout: 60000,
     failureCount: 0,
     lastFailureTime: null,
     isOpen() {
-        const now = Date.now();
-        if (this.failureCount >= this.failureThreshold && now - this.lastFailureTime < this.resetTimeout) {
-            return true;  // Circuit is open, stop making requests
-        }
-        return false;  // Circuit is closed, allow requests
+        return this.failureCount >= this.failureThreshold && Date.now() - this.lastFailureTime < this.resetTimeout;
     },
     recordFailure() {
         this.failureCount++;
@@ -134,11 +111,12 @@ function decompressBody(body, encoding) {
     }
 }
 
-// Enhanced cloudscraper handling function
+// Makes cloudscraper requests with retry and circuit breaker
 async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
     const MAX_REDIRECTS = 5;
-    const MAX_RETRIES = 3;
+    if (circuitBreaker.isOpen()) throw new Error('Circuit breaker is open, aborting requests.');
 
+    const cacheKey = config.url.href;
     const ciphers = [
         'ECDHE-ECDSA-AES128-GCM-SHA256',
         'ECDHE-RSA-AES128-GCM-SHA256',
@@ -151,27 +129,10 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
     const agent = new https.Agent({
         ciphers,
         honorCipherOrder: true,
-        secureOptions: https.constants.SSL_OP_NO_TLSv1 | https.constants.SSL_OP_NO_TLSv1_1,
+        secureOptions: SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1,
         keepAlive: true,
     });
 
-    // Exponential backoff with jitter
-    const retryRequest = async (delay, retryAttempt) => {
-        const jitter = Math.random() * 1000;
-        const backoffTime = delay * Math.pow(2, retryAttempt) + jitter;
-        console.warn(`Retrying in ${backoffTime.toFixed(0)}ms...`);
-        return new Promise((resolve) => setTimeout(resolve, backoffTime))
-            .then(() => makeCloudscraperRequest(config, retries - 1, redirectCount));
-    };
-
-    // Check circuit breaker
-    if (circuitBreaker.isOpen()) {
-        console.error('Circuit is open, aborting request.');
-        throw new Error('Circuit breaker is open, aborting requests.');
-    }
-
-    // Caching logic: check cache first
-    const cacheKey = config.url.href;
     if (requestCache.has(cacheKey)) {
         console.log('Serving response from cache');
         return requestCache.get(cacheKey);
@@ -182,72 +143,27 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
             uri: config.url.href,
             headers: config.headers,
             gzip: true,
-            encoding: null,  // Raw buffer data
-            agentOptions: {
-                httpsAgent: agent,
-                proxy: config.proxy || null,
-            },
-            timeout: config.timeout || 10000
+            encoding: null,
+            agentOptions: { httpsAgent: agent },
+            timeout: config.timeout || 10000,
         }, async (error, response, body) => {
             if (error) {
-                circuitBreaker.recordFailure();  // Record failure for circuit breaker
-                if (retries > 0) {
-                    return resolve(await retryRequest(1000, MAX_RETRIES - retries));  // Retry with backoff
-                }
-                console.error(`Cloudscraper failed: ${error.message}`);
-                return reject(new Error('Cloudscraper Request Failed'));
+                circuitBreaker.recordFailure();
+                return retries > 0 ? resolve(await makeCloudscraperRequest(config, retries - 1, redirectCount)) : reject(new Error('Cloudscraper request failed'));
             }
 
-            const { statusCode } = response;
-            
-            // Handle Cloudflare challenges
-            if (response.headers['cf-mitigated']) {
-                console.warn('Cloudflare challenge detected, retrying with cloudscraper...');
-                return resolve(await retryRequest(2000, MAX_RETRIES - retries));
+            if (response.statusCode === 302 && redirectCount < MAX_REDIRECTS) {
+                config.url = new URL(response.headers.location);
+                return resolve(makeCloudscraperRequest(config, retries, redirectCount + 1));
             }
 
-            // Handle 403 Forbidden or Cloudflare retries
-            if (statusCode === 403) {
-                if (retries > 0) {
-                    console.warn(`403 Forbidden. Retrying... Attempts left: ${retries}`);
-                    return resolve(await retryRequest(2000, MAX_RETRIES - retries));
-                }
-                console.error('Cloudflare returned 403, maximum retries reached.');
-                return reject(new Error('Cloudscraper Request Blocked by Cloudflare'));
-            }
+            if (redirectCount >= MAX_REDIRECTS) return reject(new Error('Too many redirects'));
 
-            // Handle redirects (302)
-            if (statusCode === 302 && redirectCount < MAX_REDIRECTS) {
-                const redirectUrl = response.headers.location;
-                if (redirectUrl) {
-                    console.info(`302 Redirected to: ${redirectUrl}`);
-                    config.url = new URL(redirectUrl);  // Follow the redirect
-                    return resolve(makeCloudscraperRequest(config, retries, redirectCount + 1));
-                }
-            }
-
-            // Handle too many redirects
-            if (redirectCount >= MAX_REDIRECTS) {
-                return reject(new Error('Too many redirects, aborting request.'));
-            }
-
-            // Handle decompression
-            let decompressedBody;
-            try {
-                const contentEncoding = response.headers['content-encoding'];
-                decompressedBody = decompressBody(body, contentEncoding);
-            } catch (decompressionError) {
-                console.error('Decompression failed:', decompressionError);
-                return reject(new Error('Decompression failed'));
-            }
-
-            // Cache the successful response
+            const contentEncoding = response.headers['content-encoding'];
+            const decompressedBody = await decompress(body, contentEncoding);
             requestCache.set(cacheKey, { headers: response.headers, data: decompressedBody });
-
-            // Reset the circuit breaker on success
             circuitBreaker.reset();
 
-            // Successful request
             resolve({ headers: response.headers, data: decompressedBody });
         });
     }));
@@ -259,19 +175,16 @@ async function proxy(req, res) {
         url: new URL(req.params.url),
         method: 'get',
         headers: {
-            ...pick(req.headers, ['cookie', 'referer']),
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            ...pick(req.headers, ['cookie', 'referer', 'user-agent']),
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/*,*/*;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',  // Allow gzip, deflate, and Brotli compression
+            'Accept-Encoding': 'gzip, deflate, br',
             'Cache-Control': 'no-cache',
             'DNT': '1',
-            'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
-            'Connection': 'keep-alive',
+            'x-forwarded-for': req.ip,
         },
         timeout: 5000,
         maxRedirects: 5,
         responseType: 'arraybuffer',
-        validateStatus: status => status < 500,
     };
 
     try {
@@ -281,7 +194,7 @@ async function proxy(req, res) {
         if (config.url.protocol === 'http2:') {
             originResponse = await makeHttp2Request(config);
         } else {
-            originResponse = await makeRequest(config); // Use the rate-limited request
+            originResponse = await makeRequest(config); // Use the rate-limited axios-based request
         }
 
         // Check for Cloudflare status codes
@@ -292,28 +205,26 @@ async function proxy(req, res) {
 
         const { headers, data } = originResponse;
         const contentEncoding = headers['content-encoding'];
-        let decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
-
-        // Validate decompressedData
-        if (!decompressedData) {
-            throw new Error('Decompression failed or no data received');
-        }
+        const decompressedData = await decompress(data, contentEncoding);
 
         // Compression Optimization: Choose the best compression method based on Accept-Encoding header
         const acceptedEncodings = req.headers['accept-encoding'] || '';
         if (shouldCompress(req, decompressedData)) {
             if (acceptedEncodings.includes('br')) {
-                decompressedData = compressionMethods.br(decompressedData);
                 res.setHeader('Content-Encoding', 'br');
+                res.send(compressionMethods.br(decompressedData));
             } else if (acceptedEncodings.includes('gzip')) {
-                decompressedData = compressionMethods.gzip(decompressedData);
                 res.setHeader('Content-Encoding', 'gzip');
+                res.send(compressionMethods.gzip(decompressedData));
             } else if (acceptedEncodings.includes('deflate')) {
-                decompressedData = compressionMethods.deflate(decompressedData);
                 res.setHeader('Content-Encoding', 'deflate');
+                res.send(compressionMethods.deflate(decompressedData));
             } else {
                 res.setHeader('Content-Encoding', 'identity');
+                res.send(decompressedData);
             }
+        } else {
+            bypass(req, res, decompressedData);
         }
 
 
