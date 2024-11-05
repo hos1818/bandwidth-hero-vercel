@@ -320,8 +320,8 @@ async function proxy(req, res) {
         res.set('Access-Control-Allow-Origin', '*'); // Allow CORS if needed
 
         res.setHeader('content-encoding', 'identity');
-        req.params.originType = response.headers['content-type'] || '';
-        req.params.originSize = decompressedData.length;
+        req.params.originType = originResponse.headers['content-type'] || '';
+        req.params.originSize = buffer.length;
 
         if (shouldCompress(req, decompressedData)) {
             compress(req, res, decompressedData);
