@@ -8,7 +8,7 @@
     "type": "git",
     "url": "https://github.com/username/repo"
   },
-  "packageManager": "pnpm@latest",
+  "packageManager": "pnpm@9.12.3",
   "scripts": {
     "start": "node server.js"
   },
