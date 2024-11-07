@@ -1,13 +1,13 @@
-const got = require('got');
-const { pick } = require('lodash');
-const zlib = require('node:zlib');
-const lzma = require('lzma-native');
-const { ZstdCodec } = require('zstd-codec');
-const shouldCompress = require('./shouldCompress');
-const redirect = require('./redirect');
-const compress = require('./compress');
-const bypass = require('./bypass');
-const copyHeaders = require('./copyHeaders');
+import got from 'got';
+import { pick } from 'lodash';
+import zlib from 'node:zlib';
+import lzma from 'lzma-native';
+import { ZstdCodec } from 'zstd-codec';
+import shouldCompress from './shouldCompress.js';
+import redirect from './redirect.js';
+import compress from './compress.js';
+import bypass from './bypass.js';
+import copyHeaders from './copyHeaders.js';
 
 // Cloudflare-specific status codes to handle
 const CLOUDFLARE_STATUS_CODES = [403, 503];
