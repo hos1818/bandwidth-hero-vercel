@@ -1,6 +1,6 @@
-const sharp = require('sharp');
-const redirect = require('./redirect');
-const { URL } = require('url');
+import sharp from 'sharp';
+import redirect from './redirect';
+import { URL } from 'url';
 
 // Sharpening parameters
 const sharpenParams = {
