@@ -33,7 +33,7 @@ function copyHeaders(source, target, additionalExcludedHeaders = [], transformFu
 
         // Set the header in the target, directly handling both array and string values.
         try {
-            target.setHeader(normalizedKey, finalValue);
+            target.set(normalizedKey, finalValue);
         } catch (error) {
             console.error(`Error setting header '${key}': ${error.message}`);
         }
