@@ -7,7 +7,7 @@ function copyHeaders(source, target, additionalExcludedHeaders = [], transformFu
     // Combine default and additional headers to exclude, normalized to lowercase for consistency.
     const defaultExcludedHeaders = [
         'host', 'connection', 'authorization', 'cookie', 'set-cookie', 
-        'content-length', 'transfer-encoding'
+        'content-length', 'transfer-encoding', ':status'
     ];
     const excludedHeaders = new Set(defaultExcludedHeaders.concat(additionalExcludedHeaders.map(header => header.toLowerCase())));
 
