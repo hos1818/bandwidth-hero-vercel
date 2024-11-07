@@ -1,5 +1,5 @@
-const { URL } = require('url');
-const { PassThrough } = require('stream');
+import { URL } from 'url';
+import { PassThrough } from 'stream';
 
 function forwardWithoutProcessing(req, res, buffer) {
   try {
