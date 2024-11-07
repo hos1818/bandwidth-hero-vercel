@@ -18,7 +18,7 @@ async function compress(req, res, input) {
     const isAnimated = pages && pages > 1;
     const outputFormat = isAnimated ? 'webp' : format;
 
-    const compressionQuality = adjustCompressionQuality(pixelCount, size, quality);
+    const compressionQuality = req.params.quality;
     const { tileRows, tileCols, minQuantizer, maxQuantizer, effort } = optimizeAvifParams(width, height);
 
     let sharpInstance = sharp(input, { animated: isAnimated });
@@ -80,22 +80,6 @@ function optimizeAvifParams(width, height) {
   }
 
   return { tileRows, tileCols, minQuantizer, maxQuantizer, effort };
-}
-
-// Adjust compression quality based on image size and pixel count
-function adjustCompressionQuality(pixelCount, size, quality) {
-  const pixelFactor = 1.5;
-  const sizeFactor = 0.002;
-  const baseQuality = Math.min(quality, 100);
-
-  const pixelSizeScale = Math.log10(Math.max(pixelCount / 1e6, 1));
-  const sizeScale = Math.log2(Math.max(size / 1e6, 1));
-
-  let adjustedQuality = baseQuality - (pixelSizeScale * pixelFactor + sizeScale * sizeFactor) * baseQuality;
-
-  adjustedQuality = Math.max(adjustedQuality, 40);
-
-  return Math.ceil(adjustedQuality);
 }
 
 // Apply artifact reduction before sharpening and compression
