@@ -1,31 +1,16 @@
-const { URL } = require('url'); // Import the URL class from the 'url' module
-
+const { URL } = require('url');
 
 /**
- * Validates a URL for security and format correctness.
+ * Validates a URL's format and security.
  * 
  * @param {string} urlString - The URL to validate.
  * @returns {boolean} True if the URL is valid, false otherwise.
  */
 function isValidUrl(urlString) {
-    if (!urlString) {
-        console.error('No URL provided for validation.');
-        return false;
-    }
-
     try {
-        // Normalize and parse the URL.
-        const normalizedUrl = normalizeUrl(urlString);
-        const parsedUrl = new URL(normalizedUrl);
-
-        // Allow only specific protocols for security reasons.
-        const allowedProtocols = ['http:', 'https:']; 
-        if (!allowedProtocols.includes(parsedUrl.protocol)) {
-            console.error(`Invalid URL protocol: ${parsedUrl.protocol}`);
-            return false;
-        }
-
-        return true; // URL passes all checks.
+        // Parse and validate protocol
+        const parsedUrl = new URL(normalizeUrl(urlString));
+        return ['http:', 'https:'].includes(parsedUrl.protocol);
     } catch (error) {
         console.error(`Invalid URL: ${urlString}. Error: ${error.message}`);
         return false;
@@ -33,74 +18,56 @@ function isValidUrl(urlString) {
 }
 
 /**
- * Normalizes a URL by trimming whitespace, removing trailing slashes, 
- * and decoding certain characters for consistency.
+ * Normalizes a URL by trimming whitespace and removing trailing slashes.
  * 
  * @param {string} urlString - The URL string to normalize.
  * @returns {string} - The normalized URL.
  */
 function normalizeUrl(urlString) {
-    // Normalize URL: trim, remove trailing slashes, and decode safe characters.
     return decodeURI(urlString.trim().replace(/\/+$/, ''));
 }
 
 /**
- * Redirects a client to a given URL, with built-in validation and protection 
- * against open redirect vulnerabilities.
+ * Redirects a client to a validated URL, protecting against open redirects.
  * 
- * @param {Object} req - The request object, containing URL parameters.
- * @param {Object} res - The response object, used to send headers and responses.
- * @param {number} [statusCode=302] - The HTTP status code for the redirect.
+ * @param {Object} req - The request object with URL parameters.
+ * @param {Object} res - The response object for sending headers and responses.
+ * @param {number} [statusCode=302] - HTTP status code for the redirect.
  */
 function redirect(req, res, statusCode = 302) {
-    const targetUrl = req.params.url;
+    const targetUrl = req.params?.url;
 
-    if (!targetUrl) {
-        console.error('No target URL provided for redirection.');
-        res.status(400).send('Bad Request: Missing target URL.');
-        return;
+    // Validate target URL
+    if (!targetUrl || !isValidUrl(targetUrl)) {
+        console.error(`Invalid or missing target URL: ${targetUrl}`);
+        return res.status(400).send('Invalid or missing target URL.');
     }
 
-    // Normalize and validate the URL to prevent open redirects.
+    // Normalize URL and prevent redirect loops
     const normalizedUrl = normalizeUrl(targetUrl);
-    if (!isValidUrl(normalizedUrl)) {
-        console.error(`Attempted redirect to unauthorized or invalid URL: ${targetUrl}`);
-        res.status(400).send('Invalid URL.');
-        return;
-    }
-
-    // Prevent redirect loops by checking if the URL is the same as the current request URL.
     if (req.originalUrl === normalizedUrl) {
         console.error('Detected a redirect loop.');
-        res.status(400).send('Redirect loop detected.');
-        return;
+        return res.status(400).send('Redirect loop detected.');
     }
 
-    // Check if headers have already been sent.
+    // If headers already sent, prevent further action
     if (res.headersSent) {
-        console.error('Headers already sent, unable to redirect.');
+        console.error('Headers already sent; cannot redirect.');
         return;
     }
 
-    // Remove potentially harmful or conflicting headers.
-    const restrictedHeaders = ['content-length', 'cache-control', 'expires', 'date', 'etag'];
-    restrictedHeaders.forEach(header => res.removeHeader(header));
+    // Clear sensitive headers and set redirection location
+    res.removeHeader('Content-Length');
+    res.setHeader('Location', encodeURI(normalizedUrl));
 
-    // Set the location header for the redirect.
-    res.setHeader('location', encodeURI(normalizedUrl));
-
-    // Log the redirect for monitoring purposes.
-    console.log(`Redirecting client to ${normalizedUrl} with status code ${statusCode}.`);
-
-    // Send the response with the correct status and fallback HTML for older clients..
-    if (statusCode === 302) {
-        res.status(statusCode).send(`<html>
+    // Send response with redirect
+    console.log(`Redirecting to ${normalizedUrl} with status code ${statusCode}.`);
+    res.status(statusCode).send(statusCode === 302 ? `
+        <html>
             <head><meta http-equiv="refresh" content="0;url=${encodeURI(normalizedUrl)}"></head>
             <body>Redirecting...</body>
-            </html>`);
-    } else {
-        res.status(statusCode).end();
-    }
+        </html>
+    ` : '');
 }
 
 module.exports = redirect;
