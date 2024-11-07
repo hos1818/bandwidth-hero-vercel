@@ -66,4 +66,4 @@ function redirect(req, res, statusCode = 302) {
     );
 }
 
-module.exports = redirect;
+export default redirect;
