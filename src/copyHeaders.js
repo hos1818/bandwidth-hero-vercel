@@ -35,6 +35,7 @@ function copyHeaders(source, target, additionalExcludedHeaders = [], transformFu
     }
 }
 
+
 // Example transformFunction implementation
 function transformHeader(key, value) {
     const sensitiveHeaders = new Set(['authorization', 'cookie', 'set-cookie', 'proxy-authorization']);
@@ -66,3 +67,5 @@ function transformHeader(key, value) {
     // Return transformed key-value pair
     return [transformedKey, transformedValue];
 }
+
+module.exports = copyHeaders;
