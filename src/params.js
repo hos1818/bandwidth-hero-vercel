@@ -5,40 +5,47 @@ const MIN_QUALITY = 10;
 const validator = require('validator');
 
 function params(req, res, next) {
-  // Handle multiple URLs by joining with '&url=', otherwise assign directly.
-  let url = Array.isArray(req.query.url) ? req.query.url.join('&url=') : req.query.url;
+  let url = req.query.url;
 
-  // Default response if no URL is provided.
+  // Handle the case where multiple URLs are passed, by joining them, but clarify usage based on the app's context.
+  if (Array.isArray(url)) {
+    console.warn('Multiple URLs provided; concatenating for processing.');
+    url = url.join('&url=');
+  }
+
+  // Return default response if no URL is provided.
   if (!url) {
     console.log('No URL provided, sending default response.');
     return res.end('bandwidth-hero-proxy');
   }
 
-  // Replace specific URL formatting issues, such as "bmi" transformations.
+  // Replace URL formatting issues (e.g., "bmi" transformations).
   url = url.replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://');
 
-  // Validate URL with required protocol.
+  // Validate the URL for security (ensure it includes a valid protocol).
   if (!validator.isURL(url, { require_protocol: true })) {
     console.error(`Invalid URL received: ${url}`);
     return res.status(400).send('Invalid URL');
   }
 
-  // Assign cleaned URL to request parameters.
+  // Pass the validated and cleaned URL to the request parameters.
   req.params.url = url;
 
-  // Determine image format (default is WebP; JPEG if specified).
+  // Determine image format (WebP by default, unless `jpeg` is specified).
   req.params.webp = !req.query.jpeg;
 
-  // Set grayscale mode, defaulting to true unless explicitly set to `bw=0`.
-  req.params.grayscale = req.query.bw !== '0';
+  // Determine if grayscale (default to true unless `bw=0` is explicitly passed).
+  req.params.grayscale = req.query.bw != 0;
 
-  // Parse quality parameter, defaulting and clamping as necessary.
-  req.params.quality = Math.min(
-    Math.max(parseInt(req.query.l, 10) || DEFAULT_QUALITY, MIN_QUALITY),
-    MAX_QUALITY
-  );
+  // Parse the quality parameter, using defaults if invalid.
+  let quality = parseInt(req.query.l, 10);
+  if (isNaN(quality)) {
+    console.warn(`Invalid quality value provided: ${req.query.l}, defaulting to ${DEFAULT_QUALITY}`);
+    quality = DEFAULT_QUALITY;
+  }
+  req.params.quality = Math.min(Math.max(quality, MIN_QUALITY), MAX_QUALITY);
 
-  // Proceed to the next middleware.
+  // Proceed to the next middleware or handler.
   next();
 }
 
