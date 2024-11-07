@@ -10,22 +10,28 @@ function forwardWithoutProcessing(req, res, buffer) {
       return res.status(500).send("Invalid or missing buffer");
     }
 
-    // Set essential headers to preserve content type and security
-    res.setHeader('Content-Type', req.params.originType || 'application/octet-stream');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('x-proxy-bypass', 1);
-    res.setHeader('Content-Length', buffer.length);
-
-    // Extract filename from URL path if available
+    // Extract filename from URL path if available, using 'download' as a default
     let filename = 'download';
-    try {
-      const urlPath = new URL(req.params.url).pathname;
-      filename = decodeURIComponent(urlPath.split('/').pop()) || filename;
-    } catch (error) {
-      console.error("Invalid URL provided:", error);
+    if (req.params?.url) {
+      try {
+        const urlPath = new URL(req.params.url).pathname;
+        filename = decodeURIComponent(urlPath.split('/').pop()) || filename;
+      } catch (error) {
+        console.error("Invalid URL provided:", error);
+      }
+    } else {
+      console.warn("URL parameter missing from request");
     }
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+
+    // Set essential headers only once
+    res.set({
+      'Content-Type': req.params.originType || 'application/octet-stream',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'x-proxy-bypass': 1,
+      'Content-Length': buffer.length,
+      'Content-Disposition': `inline; filename="${filename}"`,
+    });
 
     // Stream the buffer to response efficiently
     const bufferStream = new PassThrough();
