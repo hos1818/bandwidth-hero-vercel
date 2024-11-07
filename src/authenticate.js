@@ -16,7 +16,7 @@ function authenticate(req, res, next) {
 
     // Validate credentials with timing-safe comparisons
     if (!credentials || !safeCompare(credentials.name, LOGIN) || !safeCompare(credentials.pass, PASSWORD)) {
-      res.setHeader('WWW-Authenticate', 'Basic realm="Bandwidth-Hero Compression Service"');
+      res.set('WWW-Authenticate', 'Basic realm="Bandwidth-Hero Compression Service"');
       console.warn('Unauthorized access attempt.');
       return res.status(401).end('Access denied');
     }
