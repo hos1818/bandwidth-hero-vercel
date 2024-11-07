@@ -15,37 +15,36 @@ const CLOUDFLARE_STATUS_CODES = [403, 503];
 
 // Centralized decompression utility
 async function decompress(data, encoding) {
-    const decompressors = {
-        gzip: () => zlib.promises.gunzip(data),
-        br: () => zlib.promises.brotliDecompress(data),
-        deflate: () => zlib.promises.inflate(data),
-        lzma: () => new Promise((resolve, reject) => {
-            lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result));
-        }),
-        lzma2: () => new Promise((resolve, reject) => {
-            lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result));
-        }),
-        zstd: () => new Promise((resolve, reject) => {
-            ZstdCodec.run(zstd => {
-                try {
-                    const simple = new zstd.Simple();
-                    resolve(simple.decompress(data));
-                } catch (error) {
-                    reject(error);
-                }
-            });
-        }),
-    };
-
-    if (decompressors[encoding]) {
-        try {
-            return await decompressors[encoding]();
-        } catch (error) {
-            console.error(`Decompression failed for encoding ${encoding}:`, error);
-            return data; // Return original if decompression fails
+    try {
+        switch (encoding) {
+            case 'gzip':
+                return await zlib.promises.gunzip(data);
+            case 'br':
+                return await zlib.promises.brotliDecompress(data);
+            case 'deflate':
+                return await zlib.promises.inflate(data);
+            case 'lzma':
+            case 'lzma2':
+                return await new Promise((resolve, reject) => {
+                    lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result));
+                });
+            case 'zstd':
+                return await new Promise((resolve, reject) => {
+                    ZstdCodec.run(zstd => {
+                        try {
+                            const simple = new zstd.Simple();
+                            resolve(simple.decompress(data));
+                        } catch (error) {
+                            reject(error);
+                        }
+                    });
+                });
+            default:
+                console.warn(`Unknown content-encoding: ${encoding}`);
+                return data;
         }
-    } else {
-        console.warn(`Unknown content-encoding: ${encoding}`);
+    } catch (error) {
+        console.error(`Decompression failed for encoding ${encoding}:`, error);
         return data;
     }
 }
@@ -65,11 +64,13 @@ async function makeHttp2Request(config) {
         let data = [];
 
         req.on('response', (headers, flags) => {
-            resolve({ headers, flags, data });
-            client.close(); // Close client connection to avoid memory leaks
+            req.on('data', chunk => data.push(chunk));
+            req.on('end', () => {
+                client.close();
+                resolve({ headers, flags, data: Buffer.concat(data) });
+            });
         });
-        req.on('data', chunk => data.push(chunk));
-        req.on('end', () => resolve(Buffer.concat(data)));
+
         req.on('error', err => {
             client.close();
             reject(err);
@@ -100,23 +101,23 @@ async function proxy(req, res) {
     };
 
     try {
-        let originResponse = config.url.protocol === 'http2:'
-            ? await makeHttp2Request(config)
-            : await axios(config);
+        let originResponse;
+        if (config.url.protocol === 'http2:') {
+            originResponse = await makeHttp2Request(config);
+        } else {
+            originResponse = await axios(config);
+        }
 
         if (!originResponse) {
             console.error("Origin response is empty");
-            redirect(req, res);
-            return;
+            return redirect(req, res);
         }
 
         const { headers, data, status } = originResponse;
 
-        // Check for Cloudflare-related status codes before decompression
         if (CLOUDFLARE_STATUS_CODES.includes(status)) {
             console.log(`Bypassing due to Cloudflare status: ${status}`);
-            bypass(req, res, data);
-            return; // Skip further processing
+            return bypass(req, res, data);
         }
 
         const contentEncoding = headers['content-encoding'];
