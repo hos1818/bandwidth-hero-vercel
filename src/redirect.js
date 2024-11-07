@@ -1,5 +1,6 @@
 const { URL } = require('url'); // Import the URL class from the 'url' module
 
+
 /**
  * Validates a URL for security and format correctness.
  * 
@@ -91,7 +92,7 @@ function redirect(req, res, statusCode = 302) {
     // Log the redirect for monitoring purposes.
     console.log(`Redirecting client to ${normalizedUrl} with status code ${statusCode}.`);
 
-    // Send the response with the correct status and fallback HTML for older clients.
+    // Send the response with the correct status and fallback HTML for older clients..
     if (statusCode === 302) {
         res.status(statusCode).send(`<html>
             <head><meta http-equiv="refresh" content="0;url=${encodeURI(normalizedUrl)}"></head>
