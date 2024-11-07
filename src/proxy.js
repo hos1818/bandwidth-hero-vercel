@@ -123,7 +123,7 @@ async function proxy(req, res) {
         const contentEncoding = headers['content-encoding'];
         const decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
 
-        copyHeaders(originResponse, res, [], transformHeader);
+        copyHeaders(originResponse, res);
         res.setHeader('content-encoding', 'identity');
         req.params.originType = headers['content-type'] || '';
         req.params.originSize = decompressedData.length;
