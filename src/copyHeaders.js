@@ -40,4 +40,4 @@ function copyHeaders(source, target, additionalExcludedHeaders = [], transformFu
     }
 }
 
-module.exports = copyHeaders;
+export default copyHeaders;
