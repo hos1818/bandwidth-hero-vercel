@@ -1,6 +1,6 @@
 const axios = require('axios');
 const { pick } = require('lodash');
-const zlib = require('zlib');
+const zlib = require('node:zlib');
 const lzma = require('lzma-native');
 const { ZstdCodec } = require('zstd-codec');
 const shouldCompress = require('./shouldCompress');
@@ -8,9 +8,9 @@ const redirect = require('./redirect');
 const compress = require('./compress');
 const bypass = require('./bypass');
 const copyHeaders = require('./copyHeaders');
-const http2 = require('http2');
-const https = require('https');
-const { URL } = require('url');
+const http2 = require('node:http2');
+const https = require('node:https');
+const { URL } = require('node:url');
 const Bottleneck = require('bottleneck');
 const cloudscraper = require('cloudscraper');
 
