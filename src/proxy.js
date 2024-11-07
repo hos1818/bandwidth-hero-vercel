@@ -15,34 +15,50 @@ const Bottleneck = require('bottleneck');
 const cloudscraper = require('cloudscraper');
 
 
+// Safely access SSL options with a fallback for older Node.js versions
+const SSL_OP_NO_TLSv1 = https.constants ? https.constants.SSL_OP_NO_TLSv1 : 0x04000000;  // Fallback value
+const SSL_OP_NO_TLSv1_1 = https.constants ? https.constants.SSL_OP_NO_TLSv1_1 : 0x10000000;  // Fallback value
+
 // Compression formats based on client support
 const compressionMethods = {
-    gzip: (data) => zlib.promises.gzip(data),
-    br: (data) => zlib.promises.brotliCompress(data),
-    deflate: (data) => zlib.promises.deflate(data)
+    gzip: (data) => zlib.gzipSync(data),
+    br: (data) => zlib.brotliCompressSync(data),
+    deflate: (data) => zlib.deflateSync(data)
 };
 
-// Helper for decompression based on encoding
+// Decompression utility function
 async function decompress(data, encoding) {
     const decompressors = {
         gzip: () => zlib.promises.gunzip(data),
         br: () => zlib.promises.brotliDecompress(data),
         deflate: () => zlib.promises.inflate(data),
-        lzma: () => new Promise((resolve, reject) => lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result))),
+        lzma: () => new Promise((resolve, reject) => {
+            lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result));
+        }),
+        lzma2: () => new Promise((resolve, reject) => {
+            lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result));
+        }),
         zstd: () => new Promise((resolve, reject) => {
             ZstdCodec.run(zstd => {
                 try {
-                    resolve(new zstd.Simple().decompress(data));
+                    const simple = new zstd.Simple();
+                    resolve(simple.decompress(data));
                 } catch (error) {
                     reject(error);
                 }
             });
-        })
+        }),
     };
-    return decompressors[encoding] ? await decompressors[encoding]() : data;
+
+    if (decompressors[encoding]) {
+        return decompressors[encoding]();
+    } else {
+        console.warn(`Unknown content-encoding: ${encoding}`);
+        return data;
+    }
 }
 
-// Makes HTTP/2 requests
+// HTTP/2 request handling
 async function makeHttp2Request(config) {
     return new Promise((resolve, reject) => {
         const client = http2.connect(config.url.origin);
@@ -55,9 +71,14 @@ async function makeHttp2Request(config) {
 
         const req = client.request(headers);
         let data = [];
+
+        req.on('response', (headers) => {
+            data = []; // Clear data on each new response
+        });
         req.on('data', chunk => data.push(chunk));
         req.on('end', () => resolve(Buffer.concat(data)));
         req.on('error', err => reject(err));
+
         req.end();
     });
 }
@@ -65,7 +86,7 @@ async function makeHttp2Request(config) {
 // Create a limiter with a maximum of 1 request every 2 seconds
 const limiter = new Bottleneck({
     maxConcurrent: 5,  // Limit to 5 concurrent requests
-    minTime: 100      // Minimum time of 0.1 seconds between requests
+    minTime: 2000      // Minimum time of 2 seconds between requests
 });
 
 async function makeRequest(config) {
@@ -76,14 +97,18 @@ async function makeRequest(config) {
 // Caching logic (simple in-memory cache, could be replaced with Redis or similar)
 const requestCache = new Map();
 
-// Circuit breaker
+// Circuit breaker settings
 const circuitBreaker = {
-    failureThreshold: 5,
-    resetTimeout: 60000,
+    failureThreshold: 5,  // Number of failures before opening the circuit
+    resetTimeout: 60000,  // Time in ms to wait before retrying after the circuit opens
     failureCount: 0,
     lastFailureTime: null,
     isOpen() {
-        return this.failureCount >= this.failureThreshold && Date.now() - this.lastFailureTime < this.resetTimeout;
+        const now = Date.now();
+        if (this.failureCount >= this.failureThreshold && now - this.lastFailureTime < this.resetTimeout) {
+            return true;  // Circuit is open, stop making requests
+        }
+        return false;  // Circuit is closed, allow requests
     },
     recordFailure() {
         this.failureCount++;
@@ -228,7 +253,6 @@ async function makeCloudscraperRequest(config, retries = 3, redirectCount = 0) {
     }));
 }
 
-
 // Proxy function to handle requests
 async function proxy(req, res) {
     const config = {
@@ -261,14 +285,14 @@ async function proxy(req, res) {
         }
 
         // Check for Cloudflare status codes
-        if ([403, 503].includes(originResponse.status)) {
+        if (originResponse.status === 403 || originResponse.status === 503) {
             console.log('Cloudflare detected, retrying with cloudscraper...');
             originResponse = await makeCloudscraperRequest(config); // Fallback to cloudscraper
         }
 
         const { headers, data } = originResponse;
         const contentEncoding = headers['content-encoding'];
-        const decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
+        let decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
 
         // Validate decompressedData
         if (!decompressedData) {
