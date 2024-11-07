@@ -1,5 +1,6 @@
 import got from 'got';
-import { pick } from 'lodash';
+import pkg from 'lodash';
+const { pick } = pkg;
 import zlib from 'node:zlib';
 import lzma from 'lzma-native';
 import { ZstdCodec } from 'zstd-codec';
