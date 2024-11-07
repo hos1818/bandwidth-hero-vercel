@@ -1,8 +1,6 @@
-const isAnimated = require('is-animated');
-
 // Define default compression size thresholds and allow overrides through environment variables.
 const DEFAULT_MIN_COMPRESS_LENGTH = 2048;
-const MIN_COMPRESS_LENGTH = process.env.MIN_COMPRESS_LENGTH || DEFAULT_MIN_COMPRESS_LENGTH;
+const MIN_COMPRESS_LENGTH = parseInt(process.env.MIN_COMPRESS_LENGTH, 10) || DEFAULT_MIN_COMPRESS_LENGTH;
 const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 50; // ~100KB for PNG/GIFs
 const APNG_THRESH_LENGTH = MIN_COMPRESS_LENGTH * 100; // ~200KB for animated PNGs
 
@@ -13,6 +11,20 @@ function isImageType(originType) {
 
 function hasSufficientSize(originSize, threshold) {
     return originSize >= threshold;
+}
+
+// Custom function to detect animated GIF and PNG files
+function isAnimatedImage(originType, buffer) {
+    if (originType.endsWith('gif')) {
+        // Check for animated GIF by inspecting the header
+        // GIF format uses "NETSCAPE2.0" in application extension for animation
+        return buffer.includes('NETSCAPE2.0');
+    } else if (originType.endsWith('png')) {
+        // Check for animated PNG (APNG) by inspecting specific chunks
+        const acTLIndex = buffer.indexOf('acTL'); // acTL chunk is present in APNG files
+        return acTLIndex !== -1;
+    }
+    return false;
 }
 
 function isNotEligibleForWebpCompression(webp, originSize) {
@@ -27,40 +39,38 @@ function isBelowSizeThresholdForCompression(originType, originSize, webp) {
 }
 
 function isSmallAnimatedPng(originType, buffer, originSize) {
-    return originType.endsWith('png') && isAnimated(buffer) && originSize < APNG_THRESH_LENGTH;
+    return originType.endsWith('png') && isAnimatedImage(originType, buffer) && originSize < APNG_THRESH_LENGTH;
 }
 
-// Optional: A helper to gather all the size threshold conditions into a single function for readability.
+// Consolidated function to gather size threshold checks for readability
 function isSizeBelowThreshold(req, buffer) {
     const { originType, originSize, webp } = req.params;
-    return isNotEligibleForWebpCompression(webp, originSize) ||
-           isBelowSizeThresholdForCompression(originType, originSize, webp) ||
-           isSmallAnimatedPng(originType, buffer, originSize);
+    return (
+        isNotEligibleForWebpCompression(webp, originSize) ||
+        isBelowSizeThresholdForCompression(originType, originSize, webp) ||
+        isSmallAnimatedPng(originType, buffer, originSize)
+    );
 }
 
 // Main function to decide if compression should be applied
 function shouldCompress(req, buffer) {
     const { originType, originSize, webp } = req.params;
 
-    // Ensure it's an image type
     if (!isImageType(originType)) {
         console.log(`Skipping compression for non-image type: ${originType}`);
         return false;
     }
 
-    // Skip zero-size content
     if (originSize === 0) {
         console.log('Skipping compression for zero-size content.');
         return false;
     }
 
-    // Apply thresholds for various conditions
     if (isSizeBelowThreshold(req, buffer)) {
         console.log(`No compression applied for content of type: ${originType} and size: ${originSize}`);
         return false;
     }
 
-    // If none of the conditions match, apply compression
     console.log(`Compressing content of type: ${originType} and size: ${originSize}`);
     return true;
 }
