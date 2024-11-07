@@ -15,94 +15,69 @@ function isValidUrl(urlString) {
     try {
         // Normalize the URL to ensure consistency
         const normalizedUrl = normalizeUrl(urlString);
-        const parsedUrl = new URL(normalizedUrl);
+        const parsedUrl = new URL(normalizedUrl); // Parsing might throw an error for invalid URLs.
 
         // Check if the URL uses an acceptable protocol.
-        const allowedProtocols = ['http:', 'https:'];
+        const allowedProtocols = ['http:', 'https:']; // Add other allowed schemes as needed
         if (!allowedProtocols.includes(parsedUrl.protocol)) {
             console.error(`Invalid URL protocol: ${parsedUrl.protocol}`);
             return false;
         }
 
-        // Additional check for open redirects
-        if (!parsedUrl.hostname) {
-            console.error('Invalid hostname in URL.');
-            return false;
-        }
+        // Add more checks if necessary. For example, you might want to ensure
+        // the URL host belongs to a list of trusted domains.
 
         return true; // The URL is valid
     } catch (error) {
+        // Catch and log the error if URL parsing fails
         console.error(`Invalid URL: ${urlString}. Error: ${error.message}`);
         return false;
     }
 }
 
-/**
- * Normalize URL by trimming whitespaces and handling redundant slashes.
- *
- * @param {string} urlString - The URL to normalize.
- * @returns {string} - Normalized URL.
- */
 function normalizeUrl(urlString) {
-    return urlString.trim().replace(/\/+$/, '');
+    // Remove trailing slashes and normalize percent encoding
+    return urlString.trim().replace(/\/+$/, '').replace(/%20/g, ' ');
 }
 
-/**
- * Redirects the request to a validated URL with specific headers and status code.
- *
- * @param {Object} req - Request object.
- * @param {Object} res - Response object.
- * @param {number} statusCode - Status code for redirection, default is 302.
- */
 function redirect(req, res, statusCode = 302) {
-    const targetUrl = req.params.url;
-
-    if (!targetUrl) {
-        res.status(400).json({ error: 'Bad Request: Missing target URL.' });
+    if (!req.params.url) {
+        console.error('No target URL provided for redirection.');
+        res.status(400).send('Bad Request: Missing target URL.');
         return;
     }
 
-    // Validate URL to prevent open redirect vulnerabilities
-    if (!isValidUrl(targetUrl)) {
-        res.status(400).json({ error: 'Invalid URL.' });
+    // Validate URL to protect against open redirect vulnerabilities
+    if (!isValidUrl(req.params.url)) {
+        console.error(`Attempted redirect to unauthorized URL: ${req.params.url}`);
+        res.status(400).send('Invalid URL.');
         return;
     }
 
+    // Check if headers have already been sent
     if (res.headersSent) {
         console.error('Headers already sent, unable to redirect');
         return;
     }
 
-    try {
-        // Security headers
-        res.setHeader('X-Content-Type-Options', 'nosniff');
+    // Remove headers that might reveal sensitive information or cause issues with redirects
+    const restrictedHeaders = ['content-length', 'cache-control', 'expires', 'date', 'etag'];
+    restrictedHeaders.forEach(header => res.removeHeader(header));
 
-        // Remove headers that might affect the redirection
-        const restrictedHeaders = ['content-length', 'cache-control', 'expires', 'date', 'etag'];
-        restrictedHeaders.forEach(header => res.removeHeader(header));
+    // Set the location header for the redirect
+    res.setHeader('location', encodeURI(req.params.url));
 
-        // Redirect response
-        const encodedUrl = encodeURI(targetUrl);
-        res.setHeader('Location', encodedUrl);
-        console.log(`Redirecting client to ${encodedUrl} with status code ${statusCode}.`);
+    // Log the redirect for monitoring purposes
+    console.log(`Redirecting client to ${req.params.url} with status code ${statusCode}.`);
 
-        // Switch statement for redirection types
-        switch (statusCode) {
-            case 301:
-            case 302:
-                res.status(statusCode).send(`
-                    <html>
-                        <head><meta http-equiv="refresh" content="0;url=${encodedUrl}"></head>
-                        <body>Redirecting...</body>
-                    </html>`);
-                break;
-            default:
-                res.status(statusCode).end();
-                break;
-        }
-    } catch (error) {
-        console.error(`Failed to redirect: ${error.message}`);
-        res.status(500).json({ error: 'Internal Server Error' });
+    if (statusCode === 302) {
+        // Adding HTML body as an extra measure for clients that don't follow redirects
+        res.status(statusCode).send(`<html>
+        <head><meta http-equiv="refresh" content="0;url=${encodeURI(req.params.url)}"></head>
+        <body></body>
+        </html>`);
+    } else {
+        res.status(statusCode).end();
     }
 }
 
