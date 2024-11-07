@@ -1,4 +1,5 @@
 import auth from 'basic-auth';
+
 const LOGIN = process.env.LOGIN;
 const PASSWORD = process.env.PASSWORD;
 
@@ -25,4 +26,5 @@ function authenticate(req, res, next) {
   next();
 }
 
-module.exports = authenticate;
+// Export the authenticate function
+export default authenticate;
