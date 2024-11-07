@@ -44,4 +44,4 @@ function params(req, res, next) {
   next();
 }
 
-module.exports = params;
+export default params;
