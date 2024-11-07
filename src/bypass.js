@@ -45,4 +45,5 @@ function forwardWithoutProcessing(req, res, buffer) {
   }
 }
 
-module.exports = forwardWithoutProcessing;
+// Export the function as the default export
+export default forwardWithoutProcessing;
