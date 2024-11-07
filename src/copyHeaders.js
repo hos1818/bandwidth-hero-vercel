@@ -1,45 +1,36 @@
 function copyHeaders(source, target, additionalExcludedHeaders = [], transformFunction = null) {
-    // Validate the provided objects to avoid runtime errors.
+    // Validate the provided objects.
     if (!source?.headers || !target) {
         throw new Error('Invalid source or target objects provided');
     }
 
-    // Default headers to exclude, extended by additional headers passed as arguments.
+    // Set default headers to exclude and normalize them to lowercase.
     const defaultExcludedHeaders = ['host', 'connection', 'authorization', 'cookie', 'set-cookie', 'content-length', 'transfer-encoding'];
-    const excludedHeaders = new Set([...defaultExcludedHeaders, ...additionalExcludedHeaders].map(header => header.toLowerCase())); // Ensure case-insensitive comparison.
+    const excludedHeaders = new Set(defaultExcludedHeaders.concat(additionalExcludedHeaders).map(header => header.toLowerCase()));
 
     // Iterate through source headers.
     for (const [key, value] of Object.entries(source.headers)) {
-        const headerKeyLower = key.toLowerCase();
+        const normalizedKey = key.toLowerCase();
 
-        // Skip headers that are in the excluded set.
-        if (excludedHeaders.has(headerKeyLower)) {
-            continue;
-        }
+        // Skip if the header is in the exclusion list.
+        if (excludedHeaders.has(normalizedKey)) continue;
 
-        // Apply transformation if a valid function is provided.
-        let transformedValue = value; // Default to original value.
-        if (typeof transformFunction === 'function') {
+        // Apply transformation function if provided.
+        let transformedValue = value;
+        if (transformFunction) {
             try {
-                const transformationResult = transformFunction(key, value);
-
-                // Skip setting this header if the transformation result is explicitly null.
-                if (transformationResult === null) {
-                    continue;
-                }
-
-                // Apply transformation if a new value is returned, otherwise use the original.
-                transformedValue = transformationResult !== undefined ? transformationResult : value;
+                transformedValue = transformFunction(key, value);
+                if (transformedValue === null) continue; // Skip setting this header if explicitly null.
             } catch (error) {
                 console.error(`Error transforming header '${key}': ${error.message}`);
-                continue; // Skip to the next header if transformation fails.
+                continue; // Skip this header if transformation fails.
             }
         }
 
-        // Set the header in the target response, handling cases where the value is an array.
+        // Set the header in the target response, handling arrays.
         try {
             if (Array.isArray(transformedValue)) {
-                transformedValue.forEach(val => target.setHeader(key, val));
+                target.setHeader(key, transformedValue);
             } else {
                 target.setHeader(key, transformedValue);
             }
