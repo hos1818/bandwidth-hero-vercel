@@ -1,21 +1,22 @@
 #!/usr/bin/env node
 'use strict'
-const express = require('express')
-const morgan = require('morgan')
-const helmet = require('helmet')
-const authenticate = require('./src/authenticate')
-const params = require('./src/params')
-const proxy = require('./src/proxy')
+
+import express from 'express'
+import morgan from 'morgan'
+import helmet from 'helmet'
+import authenticate from './src/authenticate.js'
+import params from './src/params.js'
+import proxy from './src/proxy.js'
 
 const app = express()
 const PORT = process.env.PORT || 443
 
 // Use specific helmet modules to avoid conflicts on Vercel
-app.use(helmet.hidePoweredBy());
-app.use(helmet.xssFilter());
-app.use(helmet.noSniff());
-app.use(helmet.ieNoOpen());
-app.use(helmet.frameguard({ action: 'deny' }));
+app.use(helmet.hidePoweredBy())
+app.use(helmet.xssFilter())
+app.use(helmet.noSniff())
+app.use(helmet.ieNoOpen())
+app.use(helmet.frameguard({ action: 'deny' }))
 
 // HTTP request logging
 app.use(morgan('combined'))
