@@ -2,6 +2,7 @@ const sharp = require('sharp');
 const redirect = require('./redirect');
 const { URL } = require('url');
 
+// Sharpening parameters
 const sharpenParams = {
   sigma: 1.0,
   flat: 1.0,
@@ -12,7 +13,7 @@ const sharpenParams = {
 async function compress(req, res, input) {
   try {
     const format = req.params.webp ? 'avif' : 'jpeg';
-    const { quality, grayscale, originSize, url } = req.params;
+    const { grayscale, originSize, url } = req.params;
 
     const metadata = await sharp(input).metadata();
     const { width, height, pages } = metadata;
@@ -79,69 +80,43 @@ function optimizeAvifParams(width, height) {
   const largeImageThreshold = 2000;
   const mediumImageThreshold = 1000;
 
-  let tileRows = 1, tileCols = 1, minQuantizer = 26, maxQuantizer = 48, effort = 4;
-
   if (width > largeImageThreshold || height > largeImageThreshold) {
-    tileRows = 4;
-    tileCols = 4;
-    minQuantizer = 30;
-    maxQuantizer = 50;
-    effort = 3;
+    return { tileRows: 4, tileCols: 4, minQuantizer: 30, maxQuantizer: 50, effort: 3 };
   } else if (width > mediumImageThreshold || height > mediumImageThreshold) {
-    tileRows = 2;
-    tileCols = 2;
-    minQuantizer = 28;
-    maxQuantizer = 48;
-    effort = 4;
+    return { tileRows: 2, tileCols: 2, minQuantizer: 28, maxQuantizer: 48, effort: 4 };
+  } else {
+    return { tileRows: 1, tileCols: 1, minQuantizer: 26, maxQuantizer: 48, effort: 4 };
   }
-
-  return { tileRows, tileCols, minQuantizer, maxQuantizer, effort };
 }
 
 // Apply artifact reduction before sharpening and compression
 function applyArtifactReduction(sharpInstance, pixelCount) {
-  // Constants for different thresholds (in pixels)
-  const largeImageThreshold = 3000000; // 3MP
-  const mediumImageThreshold = 1000000; // 1MP
-  const smallImageThreshold = 500000; // 0.5MP
+  const thresholds = {
+    large: 3000000,
+    medium: 1000000,
+    small: 500000,
+  };
 
-  // Set adaptive parameters
-  let blurRadius = 0.3; // Minimal blur to prevent over-softening
-  let denoiseStrength = 0.1; // Default light denoise
-  let sharpenSigma = 0.5; // Light sharpening to enhance edges
-  let saturationReduction = 1.0; // No desaturation by default
+  const settings = {
+    large: { blurRadius: 0.4, denoiseStrength: 0.15, sharpenSigma: 0.8, saturationReduction: 0.85 },
+    medium: { blurRadius: 0.35, denoiseStrength: 0.12, sharpenSigma: 0.6, saturationReduction: 0.9 },
+    small: { blurRadius: 0.3, denoiseStrength: 0.1, sharpenSigma: 0.5, saturationReduction: 0.95 },
+  };
 
-  // Dynamic adjustment of sharpening and light blur based on pixel count
-  if (pixelCount > largeImageThreshold) {
-    // For very large images, apply stronger sharpening but minimal blur
-    blurRadius = 0.4; // Very light blur
-    denoiseStrength = 0.15; // Moderate denoise to reduce compression artifacts
-    sharpenSigma = 0.8; // Stronger sharpening
-    saturationReduction = 0.85; // Mild desaturation to reduce color noise
-  } else if (pixelCount > mediumImageThreshold) {
-    // For medium-sized images, apply light blur and moderate sharpening
-    blurRadius = 0.35; // Light blur, prevents over-softening
-    denoiseStrength = 0.12; // Moderate denoise
-    sharpenSigma = 0.6; // Moderate sharpening
-    saturationReduction = 0.9; // Mild desaturation
-  } else if (pixelCount > smallImageThreshold) {
-    // For smaller images, use minimal blur and light sharpening
-    blurRadius = 0.3; // Minimal blur for small images
-    denoiseStrength = 0.1; // Light denoise
-    sharpenSigma = 0.5; // Light sharpening
-    saturationReduction = 0.95; // Minimal desaturation
-  }
+  const { blurRadius, denoiseStrength, sharpenSigma, saturationReduction } =
+    pixelCount > thresholds.large
+      ? settings.large
+      : pixelCount > thresholds.medium
+      ? settings.medium
+      : pixelCount > thresholds.small
+      ? settings.small
+      : { blurRadius: 0.3, denoiseStrength: 0.1, sharpenSigma: 0.5, saturationReduction: 1.0 };
 
-  // Apply light blur, denoise, and sharpening with edge preservation
-  sharpInstance = sharpInstance
-    .modulate({
-      saturation: saturationReduction // Adjust saturation for color noise
-    })
-    .blur(blurRadius) // Apply adaptive blur (conservatively small)
-    .sharpen(sharpenSigma) // Apply sharpening with mild sigma
-    .gamma(); // Optional: enhance contrast slightly to improve visual sharpness
-
-  return sharpInstance;
+  return sharpInstance
+    .modulate({ saturation: saturationReduction })
+    .blur(blurRadius)
+    .sharpen(sharpenSigma)
+    .gamma();
 }
 
 
@@ -153,10 +128,8 @@ function sendImage(res, data, imgFormat, url, originSize, compressedSize) {
   res.setHeader('Content-Length', data.length);
   res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
   res.setHeader('X-Content-Type-Options', 'nosniff');
-
-  const safeOriginSize = Math.max(originSize, 0);
-  res.setHeader('x-original-size', safeOriginSize);
-  res.setHeader('x-bytes-saved', Math.max(safeOriginSize - compressedSize, 0));
+  res.setHeader('x-original-size', originSize || 0);
+  res.setHeader('x-bytes-saved', Math.max((originSize || 0) - compressedSize, 0));
 
   res.status(200).end(data);
 }
