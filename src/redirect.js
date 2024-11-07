@@ -55,7 +55,7 @@ function redirect(req, res, statusCode = 302) {
 
     // Set location header and perform redirect.
     const encodedUrl = encodeURI(targetUrl);
-    res.setHeader('Location', encodedUrl);
+    res.set('Location', encodedUrl);
 
     console.log(`Redirecting to ${encodedUrl} with status code ${statusCode}.`);
 
