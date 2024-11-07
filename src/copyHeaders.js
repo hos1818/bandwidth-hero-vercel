@@ -2,69 +2,55 @@ function copyHeaders(source, target, options = {}) {
     const {
         additionalExcludedHeaders = [],
         transformFunction = null,
-        overwriteExisting = true, // New option to control whether to overwrite existing headers.
-        mergeArrays = true // New option to merge array values instead of overwriting.
+        overwriteExisting = true, // Option to control header overwrite.
+        mergeArrays = true // Option to merge array values instead of overwriting.
     } = options;
 
     // Validate source and target.
-    if (!source?.headers || !target?.setHeader) {
+    if (!source?.headers || typeof target?.setHeader !== 'function') {
         throw new Error('Invalid source or target objects provided');
     }
 
-    // Default headers to exclude, extended by any additional headers.
-    const defaultExcludedHeaders = [
+    // Define headers to exclude.
+    const excludedHeaders = new Set([
         'host', 'connection', 'authorization', 'cookie', 'set-cookie', 
-        'content-length', 'transfer-encoding'
-    ];
-    const excludedHeaders = new Set(
-        [...defaultExcludedHeaders, ...additionalExcludedHeaders].map(header => header.toLowerCase())
-    );
+        'content-length', 'transfer-encoding',
+        ...additionalExcludedHeaders.map(header => header.toLowerCase())
+    ]);
 
-    // Iterate through the source headers.
+    // Iterate through headers, copying and transforming as needed.
     for (const [key, value] of Object.entries(source.headers)) {
-        const headerKeyLower = key.toLowerCase();
+        const lowerKey = key.toLowerCase();
+        if (excludedHeaders.has(lowerKey)) continue; // Skip excluded headers.
 
-        // Skip headers that are in the excluded list.
-        if (excludedHeaders.has(headerKeyLower)) continue;
-
-        // Apply transformation if a valid function is provided.
         let transformedValue = value;
+        
+        // Transform header value if transformFunction is provided.
         if (typeof transformFunction === 'function') {
             try {
                 const result = transformFunction(key, value);
-
-                // Skip if the result is explicitly null.
-                if (result === null) continue;
-
-                // Use the transformed value if valid, otherwise keep the original.
+                if (result === null) continue; // Skip null results.
                 transformedValue = result !== undefined ? result : value;
             } catch (error) {
                 console.error(`Error transforming header '${key}': ${error.message}`);
-                continue; // Skip the header if transformation fails.
+                continue; // Skip header on transform error.
             }
         }
 
-        // Ensure the header value is either a string or an array.
+        // Determine final value format as array.
         const finalValue = Array.isArray(transformedValue) ? transformedValue : [transformedValue];
 
-        // Set or merge the header in the target.
-        try {
-            const existingValue = target.getHeader(key);
+        // Handle header merging if the header already exists.
+        const existingValue = target.getHeader(key);
+        if (existingValue && !overwriteExisting) {
+            const mergedValue = mergeArrays && Array.isArray(existingValue)
+                ? [...existingValue, ...finalValue]
+                : [existingValue, ...finalValue];
             
-            // Check if the header already exists in the target and merge if necessary.
-            if (existingValue && !overwriteExisting) {
-                if (Array.isArray(existingValue) && mergeArrays) {
-                    finalValue.unshift(...existingValue);
-                } else {
-                    finalValue.unshift(existingValue);
-                }
-            }
-
-            // Set the header(s) in the target.
-            target.removeHeader(key); // Ensure header is reset before setting.
-            finalValue.forEach(val => target.setHeader(key, val));
-        } catch (error) {
-            console.error(`Error setting header '${key}': ${error.message}`);
+            target.setHeader(key, mergedValue);
+        } else {
+            // Set new header value.
+            target.setHeader(key, finalValue.length > 1 ? finalValue : finalValue[0]);
         }
     }
 }
