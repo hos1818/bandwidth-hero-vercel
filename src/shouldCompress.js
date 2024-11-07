@@ -75,4 +75,4 @@ function shouldCompress(req, buffer) {
     return true;
 }
 
-module.exports = shouldCompress;
+export default shouldCompress;
