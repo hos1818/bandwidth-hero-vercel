@@ -1,4 +1,4 @@
-const validator = require('validator');
+import validator from 'validator';
 
 const DEFAULT_QUALITY = 40;
 const MAX_QUALITY = 100;
