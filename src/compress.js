@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import redirect from './redirect';
+import redirect from './redirect.js';  // Ensure .js extension for ES module imports
 import { URL } from 'url';
 
 // Sharpening parameters
@@ -119,7 +119,6 @@ function applyArtifactReduction(sharpInstance, pixelCount) {
     .gamma();
 }
 
-
 // Send the compressed image as response
 function sendImage(res, data, imgFormat, url, originSize, compressedSize) {
   const filename = encodeURIComponent(new URL(url).pathname.split('/').pop() || 'image') + `.${imgFormat}`;
@@ -134,4 +133,5 @@ function sendImage(res, data, imgFormat, url, originSize, compressedSize) {
   res.status(200).end(data);
 }
 
-module.exports = compress;
+// Export the compress function as the default export
+export default compress;
