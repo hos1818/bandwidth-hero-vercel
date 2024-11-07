@@ -10,7 +10,10 @@ const bypass = require('./bypass');
 const copyHeaders = require('./copyHeaders');
 const http2 = require('node:http2');
 
-// Decompression utility function
+// Cloudflare-specific status codes to handle
+const CLOUDFLARE_STATUS_CODES = [403, 503];
+
+// Centralized decompression utility
 async function decompress(data, encoding) {
     const decompressors = {
         gzip: () => zlib.promises.gunzip(data),
@@ -35,14 +38,19 @@ async function decompress(data, encoding) {
     };
 
     if (decompressors[encoding]) {
-        return decompressors[encoding]();
+        try {
+            return await decompressors[encoding]();
+        } catch (error) {
+            console.error(`Decompression failed for encoding ${encoding}:`, error);
+            return data; // Return original if decompression fails
+        }
     } else {
         console.warn(`Unknown content-encoding: ${encoding}`);
         return data;
     }
 }
 
-// HTTP/2 request handling
+// HTTP/2 request handling with error handling
 async function makeHttp2Request(config) {
     return new Promise((resolve, reject) => {
         const client = http2.connect(config.url.origin);
@@ -56,10 +64,16 @@ async function makeHttp2Request(config) {
         const req = client.request(headers);
         let data = [];
 
-        req.on('response', (headers, flags) => resolve({ headers, flags, data }));
+        req.on('response', (headers, flags) => {
+            resolve({ headers, flags, data });
+            client.close(); // Close client connection to avoid memory leaks
+        });
         req.on('data', chunk => data.push(chunk));
         req.on('end', () => resolve(Buffer.concat(data)));
-        req.on('error', err => reject(err));
+        req.on('error', err => {
+            client.close();
+            reject(err);
+        });
 
         req.end();
     });
@@ -83,30 +97,32 @@ async function proxy(req, res) {
         timeout: 10000,
         maxRedirects: 5,
         responseType: 'arraybuffer',
-        validateStatus: status => status < 500,
     };
 
     try {
-        let originResponse;
+        let originResponse = config.url.protocol === 'http2:'
+            ? await makeHttp2Request(config)
+            : await axios(config);
 
-        // First attempt regular request
-        if (config.url.protocol === 'http2:') {
-            originResponse = await makeHttp2Request(config);
-        } else {
-            originResponse = await axios(config);
+        if (!originResponse) {
+            console.error("Origin response is empty");
+            redirect(req, res);
+            return;
         }
 
-        // Check for Cloudflare status codes
-        if (originResponse.status === 403 || originResponse.status === 503) {
-            bypass(req, res, decompressedData);
+        const { headers, data, status } = originResponse;
+
+        // Check for Cloudflare-related status codes before decompression
+        if (CLOUDFLARE_STATUS_CODES.includes(status)) {
+            console.log(`Bypassing due to Cloudflare status: ${status}`);
+            bypass(req, res, data);
+            return; // Skip further processing
         }
 
-        const { headers, data } = originResponse;
         const contentEncoding = headers['content-encoding'];
-        let decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
+        const decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
 
         copyHeaders(originResponse, res);
-
         res.setHeader('content-encoding', 'identity');
         req.params.originType = headers['content-type'] || '';
         req.params.originSize = decompressedData.length;
@@ -117,13 +133,7 @@ async function proxy(req, res) {
             bypass(req, res, decompressedData);
         }
     } catch (error) {
-        if (error.response) {
-            console.error(`Server responded with status: ${error.response.status}`);
-        } else if (error.request) {
-            console.error('No response received:', error.request);
-        } else {
-            console.error('Error setting up request:', error.message);
-        }
+        console.error(`Request handling failed: ${error.message}`);
         redirect(req, res);
     }
 }
