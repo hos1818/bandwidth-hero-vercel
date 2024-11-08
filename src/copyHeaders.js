@@ -5,7 +5,7 @@ function copyHeaders(source, target, additionalExcludedHeaders = [], transformFu
     }
 
     // Default headers to exclude, can be extended via function parameters.
-    const defaultExcludedHeaders = ['host', 'connection', 'authorization', 'cookie', 'set-cookie', 'content-length', 'transfer-encoding'];
+    const defaultExcludedHeaders = ['host', 'connection', 'authorization', 'cookie', 'set-cookie', 'content-length', 'transfer-encoding', ':status'];
     // Combine, deduplicate arrays, and create a Set for efficient exclusion checking.
     const excludedHeaders = new Set(defaultExcludedHeaders.concat(additionalExcludedHeaders).map(header => header.toLowerCase())); // Ensure lower case for case-insensitive comparison.
     
@@ -47,9 +47,9 @@ function copyHeaders(source, target, additionalExcludedHeaders = [], transformFu
         // Set the header, supporting multiple headers with the same name.
         try {
             if (Array.isArray(transformedValue)) {
-                transformedValue.forEach(val => target.setHeader(key, val));
+                transformedValue.forEach(val => target.set(key, val));
             } else {
-                target.setHeader(key, transformedValue);
+                target.set(key, transformedValue);
             }
         } catch (e) {
             console.error(`Error setting header '${key}': ${e.message}`);
