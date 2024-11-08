@@ -1,4 +1,5 @@
 function copyHeaders(source, target, additionalExcludedHeaders = [], transformFunction = null) {
+   
     // Validate the provided objects to avoid runtime errors.
     if (!source || !source.headers || !target) {
         throw new Error('Invalid source or target objects provided');
