@@ -1,9 +1,11 @@
 import { URL } from 'url';
 
+
 /**
  * Validates a URL for security and format correctness.
+ * 
  * @param {string} urlString - The URL to validate.
- * @returns {boolean} True if the URL is valid and secure, false otherwise.
+ * @returns {boolean} True if the URL is valid, false otherwise.
  */
 function isValidUrl(urlString) {
     if (!urlString) return false;
@@ -11,10 +13,7 @@ function isValidUrl(urlString) {
     try {
         const parsedUrl = new URL(normalizeUrl(urlString));
         const allowedProtocols = ['http:', 'https:'];
-
-        // Basic regex to prevent JavaScript or data URLs
-        const unsafePattern = /^(javascript|data):/i;
-        return allowedProtocols.includes(parsedUrl.protocol) && !unsafePattern.test(urlString);
+        return allowedProtocols.includes(parsedUrl.protocol);
     } catch {
         return false;
     }
@@ -23,6 +22,7 @@ function isValidUrl(urlString) {
 /**
  * Normalizes a URL by trimming spaces, removing trailing slashes, and
  * normalizing percent encoding.
+ * 
  * @param {string} urlString - The URL to normalize.
  * @returns {string} The normalized URL.
  */
@@ -32,6 +32,7 @@ function normalizeUrl(urlString) {
 
 /**
  * Redirects the client to a validated URL with a given status code.
+ * 
  * @param {Object} req - The request object, containing the URL to redirect.
  * @param {Object} res - The response object, used to send the redirect.
  * @param {number} [statusCode=302] - The HTTP status code for the redirect.
@@ -49,7 +50,7 @@ function redirect(req, res, statusCode = 302) {
         return;
     }
 
-    // Remove headers that may interfere with redirection.
+    // Remove restricted headers to prevent issues with redirection.
     ['content-length', 'cache-control', 'expires', 'date', 'etag'].forEach(header => res.removeHeader(header));
 
     // Set location header and perform redirect.
@@ -58,12 +59,12 @@ function redirect(req, res, statusCode = 302) {
 
     console.log(`Redirecting to ${encodedUrl} with status code ${statusCode}.`);
 
-    // Send a response with an HTML meta redirect as a fallback for 302 status.
-    const htmlFallback = statusCode === 302
-        ? `<html><head><meta http-equiv="refresh" content="0;url=${encodedUrl}"></head><body></body></html>`
-        : '';
-
-    res.status(statusCode).send(htmlFallback);
+    // For 302 status, include an HTML fallback.
+    res.status(statusCode).send(
+        statusCode === 302
+            ? `<html><head><meta http-equiv="refresh" content="0;url=${encodedUrl}"></head><body></body></html>`
+            : undefined
+    );
 }
 
 export default redirect;
