@@ -1,4 +1,5 @@
 import got from 'got';
+import axios from 'axios';
 import pkg from 'lodash';
 const { pick } = pkg;
 import zlib from 'node:zlib';
@@ -53,7 +54,7 @@ async function decompress(data, encoding) {
 async function proxy(req, res) {
     const config = {
         method: 'GET',
-        url: req.params.url,
+        url: new URL(req.params.url),
         headers: {
             ...pick(req.headers, ['cookie', 'dnt', 'referer']),
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; rv:121.0) Gecko/20100101 Firefox/121.0',
@@ -64,18 +65,14 @@ async function proxy(req, res) {
             'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
             via: '2.0 bandwidth-hero',
         },
-        timeout: {
-            request: 10000,
-        },
-        http2: true,                       // Enable HTTP/2 if supported by the server
-        responseType: 'buffer',            // Return data as a buffer for decompression
-        decompress: false,                 // Disable automatic decompression to handle manually
-        followRedirect: true,              // Follow redirects if necessary
+        timeout: 5000,
         maxRedirects: 5,
+        responseType: 'arraybuffer',
+
     };
 
     try {
-        const originResponse = await got(config);
+        const originResponse = await axios(config);
 
         if (!originResponse) {
             console.error("Origin response is empty");
