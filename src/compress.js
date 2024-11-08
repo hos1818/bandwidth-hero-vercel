@@ -119,16 +119,17 @@ function applyArtifactReduction(sharpInstance, pixelCount) {
     .gamma();
 }
 
+
 // Send the compressed image as response
 function sendImage(res, data, imgFormat, url, originSize, compressedSize) {
   const filename = encodeURIComponent(new URL(url).pathname.split('/').pop() || 'image') + `.${imgFormat}`;
 
-  res.set('Content-Type', `image/${imgFormat}`);
-  res.set('Content-Length', data.length);
-  res.set('Content-Disposition', `inline; filename="${filename}"`);
-  res.set('X-Content-Type-Options', 'nosniff');
-  res.set('x-original-size', originSize || 0);
-  res.set('x-bytes-saved', Math.max((originSize || 0) - compressedSize, 0));
+  res.setHeader('Content-Type', `image/${imgFormat}`);
+  res.setHeader('Content-Length', data.length);
+  res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('x-original-size', originSize || 0);
+  res.setHeader('x-bytes-saved', Math.max((originSize || 0) - compressedSize, 0));
 
   res.status(200).end(data);
 }
