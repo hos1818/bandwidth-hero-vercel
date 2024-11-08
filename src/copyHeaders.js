@@ -11,30 +11,29 @@ function copyHeaders(source, target, additionalExcludedHeaders = [], transformFu
     ];
     const excludedHeaders = new Set(defaultExcludedHeaders.concat(additionalExcludedHeaders.map(header => header.toLowerCase())));
 
-    // Helper function to handle transformations and validations
-    const transformHeader = (key, value) => {
-        try {
-            return transformFunction ? transformFunction(key, value) : value;
-        } catch (error) {
-            console.error(`Error transforming header '${key}': ${error.message}`);
-            return null;  // Skip header if transformation fails
-        }
-    };
-
     // Copy headers with transformations and exclusions.
     for (const [key, value] of Object.entries(source.headers)) {
         const normalizedKey = key.toLowerCase();
-
+        
         // Skip headers that are excluded
         if (excludedHeaders.has(normalizedKey)) continue;
 
-        // Transform header if needed
-        const finalValue = transformHeader(normalizedKey, value);
-        if (finalValue === null) continue;  // Skip if transformation returned null
+        // Transform header if a transform function is provided.
+        let finalValue = value;
+        if (transformFunction) {
+            try {
+                finalValue = transformFunction(key, value);
+                // Skip setting this header if transform function returns null.
+                if (finalValue === null) continue;
+            } catch (error) {
+                console.error(`Error transforming header '${key}': ${error.message}`);
+                continue; // Skip setting the header if transformation fails
+            }
+        }
 
-        // Set the header in the target, handling array and string values
+        // Set the header in the target, directly handling both array and string values.
         try {
-            target.set(normalizedKey, Array.isArray(finalValue) ? finalValue.join(', ') : finalValue);
+            target.set(normalizedKey, finalValue);
         } catch (error) {
             console.error(`Error setting header '${key}': ${error.message}`);
         }
