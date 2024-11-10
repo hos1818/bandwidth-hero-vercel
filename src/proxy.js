@@ -10,6 +10,7 @@ import redirect from './redirect.js';
 import compress from './compress.js';
 import bypass from './bypass.js';
 import copyHeaders from './copyHeaders.js';
+import http2 from 'http2';
 
 // Cloudflare-specific status codes to handle
 const CLOUDFLARE_STATUS_CODES = [403, 503];
@@ -66,11 +67,13 @@ async function makeHttp2Request(config) {
         let data = [];
 
         req.on('response', (headers, flags) => {
-            resolve({ headers, flags, data });
-            client.close(); // Close client connection to avoid memory leaks
+            req.on('data', chunk => data.push(chunk));
+            req.on('end', () => {
+                client.close();
+                resolve({ headers, data: Buffer.concat(data), status: headers[':status'] });
+            });
         });
-        req.on('data', chunk => data.push(chunk));
-        req.on('end', () => resolve(Buffer.concat(data)));
+
         req.on('error', err => {
             client.close();
             reject(err);
@@ -101,9 +104,20 @@ async function proxy(req, res) {
     };
 
     try {
-        let originResponse = config.url.protocol === 'http2:'
-            ? await makeHttp2Request(config)
-            : await axios(config);
+        let originResponse;
+
+        if (config.url.protocol === 'https:' || config.url.protocol === 'http:') {
+            originResponse = await axios(config);
+            originResponse = {
+                data: originResponse.data,
+                headers: originResponse.headers,
+                status: originResponse.status,
+            };
+        } else if (config.url.protocol === 'http2:') {
+            originResponse = await makeHttp2Request(config);
+        } else {
+            throw new Error(`Unsupported protocol: ${config.url.protocol}`);
+        }
 
         if (!originResponse) {
             console.error("Origin response is empty");
@@ -117,7 +131,7 @@ async function proxy(req, res) {
         if (CLOUDFLARE_STATUS_CODES.includes(status)) {
             console.log(`Bypassing due to Cloudflare status: ${status}`);
             bypass(req, res, data);
-            return; // Skip further processing
+            return;
         }
 
         const contentEncoding = headers['content-encoding'];
