@@ -1,8 +1,7 @@
 import sharp from 'sharp';
-import redirect from './redirect.js';  // Ensure .js extension for ES module imports
+import redirect from './redirect.js';
 import { URL } from 'url';
 
-// Sharpening parameters
 const sharpenParams = {
   sigma: 1.0,
   flat: 1.0,
@@ -18,15 +17,10 @@ async function compress(req, res, input) {
     const metadata = await sharp(input).metadata();
     const { width, height, pages } = metadata;
     const pixelCount = width * height;
-
-    // Check if the image is animated
     const isAnimated = pages && pages > 1;
-
-    // If animated, force WebP format
-    const outputFormat = isAnimated ? 'webp' : format;
+    const initialFormat = isAnimated ? 'webp' : format;
 
     const compressionQuality = req.params.quality;
-
     const { tileRows, tileCols, minQuantizer, maxQuantizer, effort } = optimizeAvifParams(width, height);
 
     let sharpInstance = sharp(input, { animated: isAnimated });
@@ -36,46 +30,71 @@ async function compress(req, res, input) {
     }
 
     if (!isAnimated) {
-      // Apply artifact removal for static images before sharpening
-      if (outputFormat === 'jpeg' || outputFormat === 'avif') {
+      if (initialFormat === 'jpeg' || initialFormat === 'avif') {
         sharpInstance = applyArtifactReduction(sharpInstance, pixelCount);
       }
 
-      if (pixelCount > 500000) { // Apply sharpening for large or detailed images
+      if (pixelCount > 500000) {
         sharpInstance = sharpInstance.sharpen(sharpenParams.sigma, sharpenParams.flat, sharpenParams.jagged);
       }
     }
 
-    sharpInstance = sharpInstance.toFormat(outputFormat, {
-      quality: compressionQuality,
-      alphaQuality: 80,
-      smartSubsample: true,
-      chromaSubsampling: '4:2:0',
-      tileRows: outputFormat === 'avif' ? tileRows : undefined,
-      tileCols: outputFormat === 'avif' ? tileCols : undefined,
-      minQuantizer: outputFormat === 'avif' ? minQuantizer : undefined,
-      maxQuantizer: outputFormat === 'avif' ? maxQuantizer : undefined,
-      effort: outputFormat === 'avif' ? effort : undefined,
-      loop: isAnimated ? 0 : undefined, // For animated WebP, set loop
-    });
+    // Set up the initial format options
+    let formatOptions = {
+      format: initialFormat,
+      options: {
+        quality: compressionQuality,
+        alphaQuality: 80,
+        smartSubsample: true,
+        chromaSubsampling: '4:2:0',
+        tileRows: initialFormat === 'avif' ? tileRows : undefined,
+        tileCols: initialFormat === 'avif' ? tileCols : undefined,
+        minQuantizer: initialFormat === 'avif' ? minQuantizer : undefined,
+        maxQuantizer: initialFormat === 'avif' ? maxQuantizer : undefined,
+        effort: initialFormat === 'avif' ? effort : undefined,
+        loop: isAnimated ? 0 : undefined,
+      },
+    };
 
-    const outputStream = sharpInstance.toBuffer({ resolveWithObject: true });
-    const { data: output, info } = await outputStream;
+    try {
+      // Attempt initial format compression
+      const { data: output, info } = await sharpInstance
+        .toFormat(formatOptions.format, formatOptions.options)
+        .toBuffer({ resolveWithObject: true });
 
-    if (res.headersSent) {
-      console.error('Headers already sent, unable to compress the image.');
-      return;
+      sendImage(res, output, formatOptions.format, url, originSize, info.size);
+    } catch (err) {
+      if (formatOptions.format === 'avif' && err.message.includes('too large for the HEIF format')) {
+        console.warn('Image too large for HEIF, falling back to WebP format.');
+
+        // Update format to WebP on fallback
+        formatOptions = {
+          format: 'webp',
+          options: {
+            quality: compressionQuality,
+            alphaQuality: 80,
+            smartSubsample: true,
+            chromaSubsampling: '4:2:0',
+            loop: isAnimated ? 0 : undefined,
+          },
+        };
+
+        const { data: output, info } = await sharpInstance
+          .toFormat(formatOptions.format, formatOptions.options)
+          .toBuffer({ resolveWithObject: true });
+
+        sendImage(res, output, formatOptions.format, url, originSize, info.size);
+      } else {
+        console.error('Compression error:', err);
+        return redirect(req, res);
+      }
     }
-
-    sendImage(res, output, outputFormat, url, originSize, info.size);
-
   } catch (err) {
     console.error('Error during image compression:', err);
     return redirect(req, res);
   }
 }
 
-// Dynamically adjust AVIF parameters for limited resources
 function optimizeAvifParams(width, height) {
   const largeImageThreshold = 2000;
   const mediumImageThreshold = 1000;
@@ -89,7 +108,6 @@ function optimizeAvifParams(width, height) {
   }
 }
 
-// Apply artifact reduction before sharpening and compression
 function applyArtifactReduction(sharpInstance, pixelCount) {
   const thresholds = {
     large: 3000000,
@@ -119,8 +137,6 @@ function applyArtifactReduction(sharpInstance, pixelCount) {
     .gamma();
 }
 
-
-// Send the compressed image as response
 function sendImage(res, data, imgFormat, url, originSize, compressedSize) {
   const filename = encodeURIComponent(new URL(url).pathname.split('/').pop() || 'image') + `.${imgFormat}`;
 
@@ -134,5 +150,4 @@ function sendImage(res, data, imgFormat, url, originSize, compressedSize) {
   res.status(200).end(data);
 }
 
-// Export the compress function as the default export
 export default compress;
