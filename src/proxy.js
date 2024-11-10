@@ -1,7 +1,5 @@
 import got from 'got';
 import axios from 'axios';
-import { wrapper } from 'axios-cookiejar-support'; // For cookie support
-import tough from 'tough-cookie';
 import pkg from 'lodash';
 const { pick } = pkg;
 import zlib from 'node:zlib';
