@@ -83,9 +83,6 @@ async function makeHttp2Request(config) {
     });
 }
 
-// Create a cookie jar to store cookies
-const cookieJar = new tough.CookieJar();
-
 // Proxy function to handle requests
 async function proxy(req, res) {
     const config = {
@@ -101,8 +98,6 @@ async function proxy(req, res) {
             'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
             via: '2.0 bandwidth-hero',
         },
-        jar: cookieJar,  // Use the cookie jar to store cookies
-        withCredentials: true, // Ensures cookies are sent with each request
         timeout: 10000,
         maxRedirects: 5,
         responseType: 'arraybuffer',
