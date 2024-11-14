@@ -20,23 +20,6 @@ const gunzip = promisify(zlib.gunzip);
 const inflate = promisify(zlib.inflate);
 const brotliDecompress = zlib.brotliDecompress ? promisify(zlib.brotliDecompress) : null;
 
-// Cloudflare DNS resolver function using DoH API
-async function resolveWithCloudflare(domain) {
-    const dnsResponse = await got('https://cloudflare-dns.com/dns-query', {
-        searchParams: { name: domain, type: 'A' },
-        headers: { Accept: 'application/dns-json' },
-        responseType: 'json',
-    });
-
-    const answer = dnsResponse.body.Answer;
-    if (!answer || !answer.length) {
-        throw new Error(`DNS resolution failed for domain: ${domain}`);
-    }
-
-    // Return the first IP address found
-    return answer[0].data;
-}
-
 // Centralized decompression utility
 async function decompress(data, encoding) {
     const decompressors = {
@@ -74,36 +57,33 @@ async function decompress(data, encoding) {
     }
 }
 
-// Proxy function to handle requests using got with HTTP/2 and Cloudflare DNS resolution
+// Proxy function to handle requests using got with HTTP/2 support
 async function proxy(req, res) {
+    const config = {
+        headers: {
+            ...pick(req.headers, ['cookie', 'dnt', 'referer']),
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; rv:121.0) Gecko/20100101 Firefox/121.0',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/*,*/*;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br, lzma, lzma2, zstd',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'DNT': '1',
+            'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
+            via: '2.0 bandwidth-hero',
+        },
+        timeout: { request: 10000 },
+        maxRedirects: 5,
+        responseType: 'buffer',
+        method: 'GET',
+        http2: true,  // Enable HTTP/2
+        request: http2wrapper.auto
+    };
+
     try {
-        // Resolve domain with Cloudflare DNS
-        const domain = new URL(req.params.url).hostname;
-        const resolvedIp = await resolveWithCloudflare(domain);
+        let originResponse;
 
-        const config = {
-            headers: {
-                ...pick(req.headers, ['cookie', 'dnt', 'referer']),
-                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; rv:121.0) Gecko/20100101 Firefox/121.0',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/*,*/*;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br, lzma, lzma2, zstd',
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'DNT': '1',
-                'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
-                via: '2.0 bandwidth-hero',
-                host: domain, // Set host header to the original domain for SSL
-            },
-            timeout: { request: 10000 },
-            maxRedirects: 5,
-            responseType: 'buffer',
-            method: 'GET',
-            http2: true,  // Enable HTTP/2
-            request: http2wrapper.auto,
-            dnsLookup: (hostname, options, callback) => callback(null, resolvedIp, 4) // Force resolved IP
-        };
-
+        // Use `got` for both HTTP/1.1 and HTTP/2 protocols
         const gotResponse = await got(req.params.url, config);
-        const originResponse = {
+        originResponse = {
             data: gotResponse.rawBody,
             headers: gotResponse.headers,
             status: gotResponse.statusCode,
