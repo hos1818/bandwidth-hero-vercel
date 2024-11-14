@@ -75,6 +75,7 @@ async function proxy(req, res) {
         maxRedirects: 5,
         responseType: 'buffer',
         method: 'GET',
+        decompress: false, // handle decompression manually
         http2: true,  // Enable HTTP/2
         request: http2wrapper.auto
     };
