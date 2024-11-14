@@ -1,4 +1,5 @@
 import got from 'got';
+import http2wrapper from 'http2-wrapper';
 import pkg from 'lodash';
 const { pick } = pkg;
 import zlib from 'node:zlib';
@@ -68,6 +69,7 @@ async function proxy(req, res) {
         responseType: 'buffer',
         method: 'GET',
         http2: true,  // Enable HTTP/2
+        request: http2wrapper.auto
     };
 
     try {
