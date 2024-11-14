@@ -2,7 +2,7 @@ import got from 'got';
 import http2wrapper from 'http2-wrapper';
 import pkg from 'lodash';
 const { pick } = pkg;
-import zlib from 'node:zlib';
+import zlib from 'zlib';
 import lzma from 'lzma-native';
 import { ZstdCodec } from 'zstd-codec';
 import shouldCompress from './shouldCompress.js';
