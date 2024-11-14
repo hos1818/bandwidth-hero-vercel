@@ -3,6 +3,7 @@ import http2wrapper from 'http2-wrapper';
 import pkg from 'lodash';
 const { pick } = pkg;
 import zlib from 'zlib';
+import { promisify } from 'util';
 import lzma from 'lzma-native';
 import { ZstdCodec } from 'zstd-codec';
 import shouldCompress from './shouldCompress.js';
@@ -14,12 +15,17 @@ import copyHeaders from './copyHeaders.js';
 // Cloudflare-specific status codes to handle
 const CLOUDFLARE_STATUS_CODES = [403, 503];
 
+// Promisified zlib functions for compatibility across Node.js versions
+const gunzip = promisify(zlib.gunzip);
+const inflate = promisify(zlib.inflate);
+const brotliDecompress = zlib.brotliDecompress ? promisify(zlib.brotliDecompress) : null;
+
 // Centralized decompression utility
 async function decompress(data, encoding) {
     const decompressors = {
-        gzip: () => zlib.promises.gunzip(data),
-        br: () => zlib.promises.brotliDecompress(data),
-        deflate: () => zlib.promises.inflate(data),
+        gzip: () => gunzip(data),
+        br: () => brotliDecompress ? brotliDecompress(data) : Promise.reject(new Error('Brotli not supported in this Node.js version')),
+        deflate: () => inflate(data),
         lzma: () => new Promise((resolve, reject) => {
             lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result));
         }),
@@ -43,7 +49,7 @@ async function decompress(data, encoding) {
             return await decompressors[encoding]();
         } catch (error) {
             console.error(`Decompression failed for encoding ${encoding}:`, error);
-            return data;
+            return data; // Return original data if decompression fails
         }
     } else {
         console.warn(`Unknown content-encoding: ${encoding}`);
