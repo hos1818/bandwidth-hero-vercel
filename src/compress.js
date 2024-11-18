@@ -3,11 +3,7 @@ import redirect from './redirect.js';
 import { URL } from 'url';
 
 // Sharpening parameters
-const sharpenParams = {
-  sigma: 1.0,
-  flat: 1.0,
-  jagged: 0.5
-};
+const sharpenParams = { sigma: 1.0, flat: 1.0, jagged: 0.5 };
 
 // Max dimensions for AVIF to avoid HEIF format size limits
 const MAX_HEIF_DIMENSION = 16384;
@@ -19,6 +15,7 @@ async function compress(req, res, input) {
     const { grayscale, originSize, url } = req.params;
 
     const metadata = await sharp(input).metadata();
+
     const { width, height, pages } = metadata;
     const pixelCount = width * height;
 
@@ -27,63 +24,49 @@ async function compress(req, res, input) {
 
     const compressionQuality = req.params.quality;
 
-    const { tileRows, tileCols, minQuantizer, maxQuantizer, effort } = optimizeAvifParams(width, height);
+    const { tileRows, tileCols, minQuantizer, maxQuantizer, effort } =
+      outputFormat === 'avif' ? optimizeAvifParams(width, height) : {};
 
     let sharpInstance = sharp(input, { animated: isAnimated });
 
-    if (grayscale) {
-      sharpInstance = sharpInstance.grayscale();
-    }
+    if (grayscale) sharpInstance = sharpInstance.grayscale();
 
-    if (!isAnimated) {
-      if (outputFormat === 'jpeg' || outputFormat === 'avif') {
-        sharpInstance = applyArtifactReduction(sharpInstance, pixelCount);
-      }
-      if (pixelCount > 500000) {
-        sharpInstance = sharpInstance.sharpen(sharpenParams.sigma, sharpenParams.flat, sharpenParams.jagged);
-      }
-    }
+    if (!isAnimated) sharpInstance = applyArtifactReduction(sharpInstance, pixelCount);
 
     // Resize image to fit within AVIF max dimensions if necessary
     if (outputFormat === 'avif' && (width > MAX_HEIF_DIMENSION || height > MAX_HEIF_DIMENSION)) {
-      sharpInstance = sharpInstance.resize({
-        width: Math.min(width, MAX_HEIF_DIMENSION),
-        height: Math.min(height, MAX_HEIF_DIMENSION),
-        fit: 'inside',
+      sharpInstance = sharpInstance.resize({ 
+        width: Math.min(width, MAX_HEIF_DIMENSION), 
+        height: Math.min(height, MAX_HEIF_DIMENSION), 
+        fit: 'inside' 
       });
     }
 
-    // Set output format and options
-    sharpInstance = sharpInstance.toFormat(outputFormat, {
+    // Configure output format
+    const formatOptions = {
       quality: compressionQuality,
       alphaQuality: 80,
       smartSubsample: true,
       chromaSubsampling: '4:2:0',
-      tileRows: outputFormat === 'avif' ? tileRows : undefined,
-      tileCols: outputFormat === 'avif' ? tileCols : undefined,
-      minQuantizer: outputFormat === 'avif' ? minQuantizer : undefined,
-      maxQuantizer: outputFormat === 'avif' ? maxQuantizer : undefined,
-      effort: outputFormat === 'avif' ? effort : undefined,
+      tileRows,
+      tileCols,
+      minQuantizer,
+      maxQuantizer,
+      effort,
       loop: isAnimated ? 0 : undefined,
-    });
+    };
 
     try {
-      const outputStream = sharpInstance.toBuffer({ resolveWithObject: true });
+      const outputStream = sharpInstance.toFormat(outputFormat, formatOptions).toBuffer({ resolveWithObject: true });
       const { data: output, info } = await outputStream;
-
-      if (res.headersSent) {
-        console.error('Headers already sent, unable to compress the image.');
-        return;
-      }
 
       sendImage(res, output, outputFormat, url, originSize, info.size);
     } catch (heifError) {
       if (heifError.message.includes("too large for the HEIF format")) {
         console.warn("Image too large for HEIF format, falling back to JPEG/WebP.");
-        outputFormat = isAnimated ? 'webp' : 'jpeg'; // Fallback format
-        sharpInstance = sharpInstance.toFormat(outputFormat, { quality: compressionQuality });
-        
-        const { data: output, info } = await sharpInstance.toBuffer({ resolveWithObject: true });
+        outputFormat = isAnimated ? 'webp' : 'jpeg';
+        const outputStream = sharpInstance.toFormat(outputFormat, { quality: compressionQuality }).toBuffer({ resolveWithObject: true });
+        const { data: output, info } = await outputStream;
         sendImage(res, output, outputFormat, url, originSize, info.size);
       } else {
         throw heifError;
