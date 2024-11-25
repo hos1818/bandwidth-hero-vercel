@@ -36,7 +36,7 @@ async function compress(req, res, input) {
     if (!isAnimated) sharpInstance = applyArtifactReduction(sharpInstance, pixelCount);
 
     // Resize for AVIF max dimensions if necessary
-    if (outputFormat === 'avif' && (width > MAX_HEIF_DIMENSION || height > MAX_HEIF_DIMENSION)) {
+    if (width > MAX_HEIF_DIMENSION || height > MAX_HEIF_DIMENSION) {
       sharpInstance = sharpInstance.resize({
         width: Math.min(width, MAX_HEIF_DIMENSION),
         height: Math.min(height, MAX_HEIF_DIMENSION),
