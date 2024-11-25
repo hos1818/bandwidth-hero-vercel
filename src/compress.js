@@ -5,8 +5,8 @@ import { URL } from 'url';
 // Sharpening parameters
 const sharpenParams = { sigma: 1.0, flat: 1.0, jagged: 0.5 };
 
-// Max dimensions for AVIF to avoid HEIF format size limits
-const MAX_HEIF_DIMENSION = 16384;
+// Max dimensions to avoid size limits
+const MAX_DIMENSION = 16384;
 
 // Optimized compress function for limited resources
 async function compress(req, res, input) {
@@ -36,10 +36,10 @@ async function compress(req, res, input) {
     if (!isAnimated) sharpInstance = applyArtifactReduction(sharpInstance, pixelCount);
 
     // Resize for max dimensions if necessary
-    if (width > MAX_HEIF_DIMENSION || height > MAX_HEIF_DIMENSION) {
+    if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
       sharpInstance = sharpInstance.resize({
-        width: Math.min(width, MAX_HEIF_DIMENSION),
-        height: Math.min(height, MAX_HEIF_DIMENSION),
+        width: Math.min(width, MAX_DIMENSION),
+        height: Math.min(height, MAX_DIMENSION),
         fit: 'inside',
       });
     }
