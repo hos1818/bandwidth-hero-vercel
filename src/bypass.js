@@ -42,7 +42,7 @@ function setResponseHeaders(res, options) {
  * @param {Object} res - The HTTP response object.
  * @param {Buffer} buffer - The buffer to stream.
  */
-function forwardWithoutProcessing(req, res, buffer) {
+function bypass(req, res, buffer) {
     try {
         if (!req || !res) throw new Error('Request or Response objects are missing or invalid');
         if (!Buffer.isBuffer(buffer)) {
@@ -70,9 +70,9 @@ function forwardWithoutProcessing(req, res, buffer) {
 
         console.log(`Forwarded without processing: ${req.params.url}`);
     } catch (error) {
-        console.error('Error in forwardWithoutProcessing:', error);
+        console.error('Error in bypass:', error);
         res.status(500).json({ error: 'Error forwarding content' });
     }
 }
 
-export default forwardWithoutProcessing;
+export default bypass;
