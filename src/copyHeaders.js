@@ -1,45 +1,52 @@
-// Utility function to copy headers from a source object to a target, with options for exclusions and transformations
+// Utility function to copy headers from a source object to a target.
 function copyHeaders(source, target, additionalExcludedHeaders = [], transformFunction = null) {
-    // Validate the provided objects.
-    if (!source?.headers || !target) {
-        throw new Error('Invalid source or target objects provided');
-    }
-
-    // Default headers to exclude, including common restricted headers.
+    // Default excluded headers.
     const defaultExcludedHeaders = [
         'host', 'connection', 'authorization', 'cookie', 'set-cookie',
-        'content-length', 'transfer-encoding', ':status', ':method', ':path'
+        'content-length', 'transfer-encoding', ':status', ':method', ':path',
     ];
-    const excludedHeaders = new Set(
-        defaultExcludedHeaders.concat(additionalExcludedHeaders).map(header => header.toLowerCase())
-    );
+    const excludedHeaders = new Set([
+        ...defaultExcludedHeaders,
+        ...additionalExcludedHeaders.map(header => header.toLowerCase()),
+    ]);
 
-    // Iterate through source headers.
-    for (const [key, value] of Object.entries(source.headers)) {
+    // Validate inputs.
+    if (!source || typeof source.headers !== 'object') {
+        throw new Error('Invalid source object: missing "headers" property.');
+    }
+    if (!target || typeof target.setHeader !== 'function') {
+        throw new Error('Invalid target object: missing "setHeader" method.');
+    }
+
+    // Process headers.
+    Object.entries(source.headers).forEach(([key, value]) => {
         const normalizedKey = key.toLowerCase();
 
-        // Skip if the header is in the exclusion list or is a pseudo-header.
-        if (excludedHeaders.has(normalizedKey) || normalizedKey.startsWith(':')) continue;
-
+        // Skip excluded headers or pseudo-headers.
+        if (excludedHeaders.has(normalizedKey) || normalizedKey.startsWith(':')) {
+            return;
+        }
+        
         // Apply transformation function if provided.
         let transformedValue = value;
         if (transformFunction) {
             try {
                 transformedValue = transformFunction(key, value);
-                if (transformedValue === null) continue; // Skip setting this header if explicitly null.
+                if (transformedValue === null) {
+                    return; // Skip if transformation returns null.
+                }
             } catch (error) {
-                console.error(`Error transforming header '${key}': ${error.message}`);
-                continue; // Skip this header if transformation fails.
+                console.error(`Failed to transform header '${key}': ${error.message}`);
+                return;
             }
         }
 
-        // Set the header in the target response.
         try {
             target.setHeader(key, transformedValue);
         } catch (error) {
-            console.error(`Error setting header '${key}': ${error.message}`);
+            console.error(`Failed to set header '${key}': ${error.message}`);
         }
-    }
+    });
 }
 
 export default copyHeaders;
