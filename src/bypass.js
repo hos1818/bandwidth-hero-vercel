@@ -1,43 +1,78 @@
 import { URL } from 'url';
 import { PassThrough } from 'stream';
 
-function forwardWithoutProcessing(req, res, buffer) {
-  try {
-    // Validate essential parameters
-    if (!req || !res) throw new Error("Request or Response objects are missing or invalid");
-    if (!Buffer.isBuffer(buffer)) {
-      console.error("Invalid or missing buffer");
-      return res.status(500).send("Invalid or missing buffer");
+/**
+ * Safely extracts the filename from a URL.
+ * 
+ * @param {string} urlString - The URL string.
+ * @param {string} defaultFilename - The default filename to use if extraction fails.
+ * @returns {string} - The sanitized filename.
+ */
+function extractFilename(urlString, defaultFilename = 'download') {
+    try {
+        const urlPath = new URL(urlString).pathname;
+        const rawFilename = decodeURIComponent(urlPath.split('/').pop()) || defaultFilename;
+        return rawFilename.replace(/[^a-zA-Z0-9._-]/g, '_'); // Sanitize filename
+    } catch {
+        return defaultFilename;
     }
+}
 
-    // Set essential headers to preserve content type and security
-    res.setHeader('Content-Type', req.params.originType || 'application/octet-stream');
+/**
+ * Sets standard response headers for forwarded content.
+ * 
+ * @param {Object} res - The HTTP response object.
+ * @param {Object} options - Options for setting headers.
+ */
+function setResponseHeaders(res, options) {
+    const { contentType, contentLength, filename } = options;
+
+    res.setHeader('Content-Type', contentType || 'application/octet-stream');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('x-proxy-bypass', 1);
-    res.setHeader('Content-Length', buffer.length);
-
-    // Extract filename from URL path if available
-    let filename = 'download';
-    try {
-      const urlPath = new URL(req.params.url).pathname;
-      filename = decodeURIComponent(urlPath.split('/').pop()) || filename;
-    } catch (error) {
-      console.error("Invalid URL provided:", error);
-    }
+    res.setHeader('Content-Length', contentLength);
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-
-    // Stream the buffer to response efficiently
-    const bufferStream = new PassThrough();
-    bufferStream.end(buffer);
-    bufferStream.pipe(res);
-
-    console.log(`Forwarded without processing: ${req.params.url}`);
-  } catch (error) {
-    console.error("Error in forwardWithoutProcessing:", error);
-    res.status(500).send("Error forwarding content");
-  }
 }
 
-// Export the function as the default export
+/**
+ * Streams a buffer to the HTTP response without processing.
+ * 
+ * @param {Object} req - The HTTP request object.
+ * @param {Object} res - The HTTP response object.
+ * @param {Buffer} buffer - The buffer to stream.
+ */
+function forwardWithoutProcessing(req, res, buffer) {
+    try {
+        if (!req || !res) throw new Error('Request or Response objects are missing or invalid');
+        if (!Buffer.isBuffer(buffer)) {
+            console.error('Invalid or missing buffer');
+            return res.status(500).json({ error: 'Invalid or missing buffer' });
+        }
+
+        // Extract and sanitize filename from the URL
+        const filename = extractFilename(req.params.url);
+
+        // Set response headers
+        setResponseHeaders(res, {
+            contentType: req.params.originType,
+            contentLength: Buffer.byteLength(buffer),
+            filename,
+        });
+
+        // Stream the buffer to the response
+        const bufferStream = new PassThrough();
+        bufferStream.end(buffer);
+        bufferStream.pipe(res).on('error', (streamError) => {
+            console.error('Error streaming buffer:', streamError);
+            res.status(500).json({ error: 'Error streaming content' });
+        });
+
+        console.log(`Forwarded without processing: ${req.params.url}`);
+    } catch (error) {
+        console.error('Error in forwardWithoutProcessing:', error);
+        res.status(500).json({ error: 'Error forwarding content' });
+    }
+}
+
 export default forwardWithoutProcessing;
