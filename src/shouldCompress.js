@@ -15,6 +15,7 @@ function isImageType(originType) {
     return originType.startsWith('image');
 }
 
+
 /**
  * Checks if the content size is above the minimum threshold for compression.
  * @param {number} originSize - The size of the original content in bytes.
