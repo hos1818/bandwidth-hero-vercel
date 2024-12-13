@@ -62,14 +62,19 @@ async function proxy(req, res) {
     const config = {
         headers: {
             ...pick(req.headers, ['cookie', 'dnt', 'referer']),
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; rv:121.0) Gecko/20100101 Firefox/121.0',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101 Firefox/91.0',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
             'Accept-Encoding': 'gzip, deflate, br',
             'Upgrade-Insecure-Requests': '1',
             'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Connection': 'keep-alive',
             'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
-            //via: '2.0 bandwidth-hero',
+            'CF-Connecting-IP': req.ip, // Spoof IP headers
+            'X-Real-IP': req.ip, // Additional spoof IP header
+            'X-Forwarded-Proto': 'https',
+            'Host': new URL(req.params.url).host,
         },
         timeout: { request: 10000 },
         maxRedirects: 5,
