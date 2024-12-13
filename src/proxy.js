@@ -69,12 +69,8 @@ async function proxy(req, res) {
             'Upgrade-Insecure-Requests': '1',
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'Pragma': 'no-cache',
-            'Connection': 'keep-alive',
             'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
-            'CF-Connecting-IP': req.ip, // Spoof IP headers
-            'X-Real-IP': req.ip, // Additional spoof IP header
-            'X-Forwarded-Proto': 'https',
-            'Host': new URL(req.params.url).host,
+            //via: '2.0 bandwidth-hero',
         },
         timeout: { request: 10000 },
         maxRedirects: 5,
