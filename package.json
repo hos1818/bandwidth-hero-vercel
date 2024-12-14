@@ -30,6 +30,6 @@
     "dotenv": "^16.4.7"
   },
   "engines": {
-    "node": "20.x"
+    "node": "22.x"
   }
 }
