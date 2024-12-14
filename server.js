@@ -13,7 +13,7 @@ import proxy from './src/proxy.js';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 443;
+const PORT = parseInt(process.env.PORT, 10) || 443;
 
 // Security Middleware
 app.use(helmet.hidePoweredBy());
