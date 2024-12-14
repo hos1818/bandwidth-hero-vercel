@@ -12,7 +12,7 @@ function params(req, res, next) {
   try {
     let { url } = req.query;
 
-    // Handle multiple URLs by joining them (warn for debugging purposes).
+    // Handle multiple URLs by joining them.
     if (Array.isArray(url)) {
       console.warn('Multiple URLs provided; concatenating for processing.');
       url = url.join('&url=');
