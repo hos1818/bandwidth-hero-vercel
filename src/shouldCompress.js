@@ -6,81 +6,41 @@ const MIN_COMPRESS_LENGTH = parseInt(process.env.MIN_COMPRESS_LENGTH, 10) || DEF
 const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 50; // ~100KB for PNG/GIFs
 const APNG_THRESHOLD_LENGTH = MIN_COMPRESS_LENGTH * 100; // ~200KB for animated PNGs;
 
-/**
- * Determines if the origin type is an image type.
- * @param {string} originType - The content type of the original file.
- * @returns {boolean} - True if the type starts with "image".
- */
 function isImageType(originType) {
-    return originType.startsWith('image');
+    return originType && originType.startsWith('image');
 }
 
-
-/**
- * Checks if the content size is above the minimum threshold for compression.
- * @param {number} originSize - The size of the original content in bytes.
- * @param {number} threshold - The size threshold to compare against.
- * @returns {boolean} - True if the size is above the threshold.
- */
 function hasSufficientSize(originSize, threshold) {
-    return originSize >= threshold;
+    return typeof originSize === 'number' && originSize >= threshold;
 }
 
-/**
- * Determines if a small WebP image should not be compressed.
- * @param {boolean} webp - Whether the output format is WebP.
- * @param {number} originSize - The size of the original content in bytes.
- * @returns {boolean} - True if WebP and below the compression threshold.
- */
 function isNotEligibleForWebpCompression(webp, originSize) {
-    return webp && originSize < MIN_COMPRESS_LENGTH;
+    return webp && typeof originSize === 'number' && originSize < MIN_COMPRESS_LENGTH;
 }
 
-/**
- * Checks if the content is a transparent image below the compression threshold.
- * @param {string} originType - The content type of the original file.
- * @param {number} originSize - The size of the original content in bytes.
- * @param {boolean} webp - Whether the output format is WebP.
- * @returns {boolean} - True if the content is a PNG/GIF and below the threshold.
- */
 function isTransparentImage(originType, originSize, webp) {
-    if (!webp && (originType.endsWith('png') || originType.endsWith('gif'))) {
-        return originSize < MIN_TRANSPARENT_COMPRESS_LENGTH;
+    if (!webp && originType && (originType.endsWith('png') || originType.endsWith('gif'))) {
+        return typeof originSize === 'number' && originSize < MIN_TRANSPARENT_COMPRESS_LENGTH;
     }
     return false;
 }
 
-/**
- * Checks if the content is a small animated PNG below the compression threshold.
- * @param {string} originType - The content type of the original file.
- * @param {Buffer} buffer - The content buffer.
- * @param {number} originSize - The size of the original content in bytes.
- * @returns {boolean} - True if the content is a small animated PNG.
- */
 function isSmallAnimatedPng(originType, buffer, originSize) {
-    return originType.endsWith('png') && isAnimated(buffer) && originSize < APNG_THRESHOLD_LENGTH;
+    return originType && originType.endsWith('png') && isAnimated(buffer) && typeof originSize === 'number' && originSize < APNG_THRESHOLD_LENGTH;
 }
 
-/**
- * Determines whether compression should be applied based on the content type and size.
- * @param {Object} req - The HTTP request object.
- * @param {Buffer} buffer - The content buffer.
- * @returns {boolean} - True if compression should be applied.
- */
 function shouldCompress(req, buffer) {
-    const { originType, originSize, webp } = req.params;
+    const { originType, originSize, webp } = req.params || {};
 
-    // Validate inputs
     if (!isImageType(originType)) {
         console.log(`Skipping compression: Non-image type ${originType}`);
         return false;
     }
-    if (originSize === 0) {
-        console.log('Skipping compression: Zero-size content.');
+    if (typeof originSize !== 'number' || originSize === 0) {
+        console.log('Skipping compression: Zero or invalid size content.');
         return false;
     }
 
-    // Evaluate compression eligibility
     if (
         isNotEligibleForWebpCompression(webp, originSize) ||
         isTransparentImage(originType, originSize, webp) ||
@@ -90,7 +50,6 @@ function shouldCompress(req, buffer) {
         return false;
     }
 
-    // If none of the conditions match, compression is applied
     console.log(`Compression applied: ${originType}, size=${originSize}`);
     return true;
 }
