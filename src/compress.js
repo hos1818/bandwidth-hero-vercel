@@ -11,7 +11,21 @@ async function compress(req, res, input) {
     const { format, compressionQuality, grayscale } = getCompressionParams(req);
 
     const sharpInstance = sharp(input);
-    const metadata = await sharpInstance.metadata();
+    let metadata;
+
+    try {
+      metadata = await sharpInstance.metadata();
+    } catch (error) {
+      console.error('Error retrieving metadata:', error);
+      redirect(req, res);
+      return;
+    }
+
+    if (!metadata || !metadata.width || !metadata.height) {
+      console.error('Invalid or missing metadata.');
+      redirect(req, res);
+      return;
+    }
 
     const isAnimated = metadata.pages > 1;
     const pixelCount = metadata.width * metadata.height;
@@ -36,7 +50,7 @@ async function compress(req, res, input) {
     processedImage.toFormat(outputFormat, formatOptions)
       .toBuffer({ resolveWithObject: true })
       .then(({ data, info }) => {
-        sendImage(res, data, outputFormat, req.params.url, req.params.originSize, info.size);
+        sendImage(res, data, outputFormat, req.params.url || '', req.params.originSize || 0, info.size);
       })
       .catch((error) => {
         handleSharpError(error, res, processedImage, outputFormat, req, compressionQuality);
@@ -48,9 +62,9 @@ async function compress(req, res, input) {
 }
 
 function getCompressionParams(req) {
-  const format = req.params.webp ? 'avif' : 'jpeg';
-  const compressionQuality = Math.min(Math.max(parseInt(req.params.quality, 10) || 75, 10), 100);
-  const grayscale = req.params.grayscale === 'true' || req.params.grayscale === true;
+  const format = req.params && req.params.webp ? 'avif' : 'jpeg';
+  const compressionQuality = Math.min(Math.max(parseInt(req.params?.quality, 10) || 75, 10), 100);
+  const grayscale = req.params?.grayscale === 'true' || req.params?.grayscale === true;
 
   return { format, compressionQuality, grayscale };
 }
@@ -67,14 +81,19 @@ function optimizeAvifParams(width, height) {
 }
 
 function getFormatOptions(outputFormat, quality, avifParams, isAnimated) {
-  return {
+  const options = {
     quality,
     alphaQuality: 80,
     smartSubsample: true,
     chromaSubsampling: '4:2:0',
-    ...(outputFormat === 'avif' ? avifParams : {}),
     loop: isAnimated ? 0 : undefined,
   };
+
+  if (outputFormat === 'avif') {
+    return { ...options, ...avifParams };
+  }
+
+  return options;
 }
 
 function applyArtifactReduction(sharpInstance, pixelCount) {
@@ -92,13 +111,13 @@ function applyArtifactReduction(sharpInstance, pixelCount) {
 }
 
 function handleSharpError(error, res, sharpInstance, outputFormat, req, quality) {
-  if (error.message.includes('too large for the HEIF format')) {
-    console.warn('Image too large for HEIF format, falling back to JPEG/WebP.');
+  if (/too large for the HEIF format|unsupported file size/.test(error.message)) {
+    console.warn('Image too large or unsupported for the HEIF format, falling back to JPEG/WebP.');
     const fallbackFormat = outputFormat === 'avif' ? 'jpeg' : outputFormat;
     sharpInstance.toFormat(fallbackFormat, { quality })
       .toBuffer({ resolveWithObject: true })
       .then(({ data, info }) => {
-        sendImage(res, data, fallbackFormat, req.params.url, req.params.originSize, info.size);
+        sendImage(res, data, fallbackFormat, req.params.url || '', req.params.originSize || 0, info.size);
       })
       .catch((err) => redirect(req, res));
   } else {
@@ -113,8 +132,8 @@ function sendImage(res, data, format, url, originSize, compressedSize) {
   res.setHeader('Content-Length', data.length);
   res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('x-original-size', originSize || 0);
-  res.setHeader('x-bytes-saved', Math.max((originSize || 0) - compressedSize, 0));
+  res.setHeader('x-original-size', originSize);
+  res.setHeader('x-bytes-saved', Math.max(originSize - compressedSize, 0));
   res.status(200).end(data);
 }
 
