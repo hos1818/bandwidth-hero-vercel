@@ -7,26 +7,28 @@ const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 50; // ~100KB for 
 const APNG_THRESHOLD_LENGTH = MIN_COMPRESS_LENGTH * 100; // ~200KB for animated PNGs;
 
 function isImageType(originType) {
-    return originType && originType.startsWith('image');
+    return originType?.startsWith('image');
 }
 
 function hasSufficientSize(originSize, threshold) {
     return typeof originSize === 'number' && originSize >= threshold;
 }
 
-function isNotEligibleForWebpCompression(webp, originSize) {
-    return webp && typeof originSize === 'number' && originSize < MIN_COMPRESS_LENGTH;
-}
-
 function isTransparentImage(originType, originSize, webp) {
-    if (!webp && originType && (originType.endsWith('png') || originType.endsWith('gif'))) {
-        return typeof originSize === 'number' && originSize < MIN_TRANSPARENT_COMPRESS_LENGTH;
-    }
-    return false;
+    return (
+        !webp &&
+        (originType?.endsWith('png') || originType?.endsWith('gif')) &&
+        !hasSufficientSize(originSize, MIN_TRANSPARENT_COMPRESS_LENGTH)
+    );
 }
 
 function isSmallAnimatedPng(originType, buffer, originSize) {
-    return originType && originType.endsWith('png') && isAnimated(buffer) && typeof originSize === 'number' && originSize < APNG_THRESHOLD_LENGTH;
+    return (
+        originType?.endsWith('png') &&
+        typeof originSize === 'number' &&
+        originSize < APNG_THRESHOLD_LENGTH &&
+        isAnimated(buffer)
+    );
 }
 
 function shouldCompress(req, buffer) {
@@ -36,17 +38,19 @@ function shouldCompress(req, buffer) {
         console.log(`Skipping compression: Non-image type ${originType}`);
         return false;
     }
-    if (typeof originSize !== 'number' || originSize === 0) {
-        console.log('Skipping compression: Zero or invalid size content.');
+
+    if (!hasSufficientSize(originSize, MIN_COMPRESS_LENGTH)) {
+        console.log(`Skipping compression: Insufficient size (${originSize} bytes).`);
         return false;
     }
 
-    if (
-        isNotEligibleForWebpCompression(webp, originSize) ||
-        isTransparentImage(originType, originSize, webp) ||
-        isSmallAnimatedPng(originType, buffer, originSize)
-    ) {
-        console.log(`Skipping compression: ${originType}, size=${originSize}`);
+    if (isTransparentImage(originType, originSize, webp)) {
+        console.log(`Skipping compression: Transparent image, size=${originSize}`);
+        return false;
+    }
+
+    if (isSmallAnimatedPng(originType, buffer, originSize)) {
+        console.log(`Skipping compression: Small animated PNG, size=${originSize}`);
         return false;
     }
 
