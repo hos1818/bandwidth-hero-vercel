@@ -5,15 +5,14 @@ function extractFilename(urlString, defaultFilename = 'download') {
     try {
         const urlPath = new URL(urlString).pathname;
         const rawFilename = decodeURIComponent(urlPath.split('/').pop()) || defaultFilename;
+        // Sanitize filename: Allow alphanumeric, dots, underscores, and hyphens; replace others with underscores.
         return rawFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
     } catch {
         return defaultFilename;
     }
 }
 
-function setResponseHeaders(res, options) {
-    const { contentType, contentLength, filename } = options;
-
+function setResponseHeaders(res, { contentType, contentLength, filename }) {
     res.setHeader('Content-Type', contentType || 'application/octet-stream');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -23,19 +22,18 @@ function setResponseHeaders(res, options) {
 }
 
 function bypass(req, res, buffer) {
+    if (!req || !res) {
+        console.error('Request or Response objects are missing or invalid');
+        return res?.status(500)?.json({ error: 'Server error' });
+    }
+
+    if (!Buffer.isBuffer(buffer)) {
+        console.error('Invalid or missing buffer');
+        return res.status(500).json({ error: 'Invalid or missing buffer' });
+    }
+
     try {
-        if (!req || !res) {
-            console.error('Request or Response objects are missing or invalid');
-            return res.status(500).json({ error: 'Server error' });
-        }
-
-        if (!Buffer.isBuffer(buffer)) {
-            console.error('Invalid or missing buffer');
-            return res.status(500).json({ error: 'Invalid or missing buffer' });
-        }
-
         const filename = extractFilename(req.params?.url || '', 'download');
-
         setResponseHeaders(res, {
             contentType: req.params?.originType,
             contentLength: buffer.length,
@@ -51,7 +49,7 @@ function bypass(req, res, buffer) {
             }
         });
 
-        console.log(`Forwarded without processing: ${req.params?.url}`);
+        console.log(`Successfully bypassed content for URL: ${req.params?.url}`);
     } catch (error) {
         console.error('Error in bypass:', error);
         if (!res.headersSent) {
