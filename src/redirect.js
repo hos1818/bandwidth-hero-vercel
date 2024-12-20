@@ -19,7 +19,7 @@ function normalizeUrl(urlString) {
 }
 
 function generateRedirectHtml(url) {
-    return `<html><head><meta http-equiv="refresh" content="0;url=${url}"></head><body></body></html>`;
+    return `<html><head><meta http-equiv="refresh" content="0;url=${url}"></head><body>Redirecting to <a href="${url}">${url}</a></body></html>`;
 }
 
 function redirect(req, res, statusCode = 302) {
@@ -33,22 +33,28 @@ function redirect(req, res, statusCode = 302) {
         return;
     }
 
-    const targetUrl = req.params.url;
+    const targetUrl = req.params?.url;
     if (!targetUrl || !isValidUrl(targetUrl)) {
         console.error(`Invalid or missing target URL: ${targetUrl}`);
-        return res.status(400).json({ error: 'Invalid URL.' });
+        return res.status(400).json({ error: 'Invalid or missing URL.' });
     }
 
+    // Remove restricted headers
     RESTRICTED_HEADERS.forEach(header => res.removeHeader(header));
 
-    const encodedUrl = encodeURI(targetUrl);
-    res.setHeader('Location', encodedUrl);
+    try {
+        const encodedUrl = encodeURI(normalizeUrl(targetUrl));
+        res.setHeader('Location', encodedUrl);
 
-    console.log(`Redirecting to ${encodedUrl} with status code ${statusCode}.`);
+        console.log(`Redirecting to ${encodedUrl} with status code ${statusCode}.`);
 
-    res.status(statusCode).send(
-        statusCode === 302 ? generateRedirectHtml(encodedUrl) : undefined
-    );
+        res.status(statusCode).send(
+            statusCode === 302 ? generateRedirectHtml(encodedUrl) : undefined
+        );
+    } catch (error) {
+        console.error(`Failed to redirect: ${error.message}`);
+        res.status(500).json({ error: 'Internal server error during redirect.' });
+    }
 }
 
 export default redirect;
