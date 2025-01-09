@@ -1,4 +1,7 @@
 import isAnimated from 'is-animated';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 // Configuration: Compression size thresholds
 const DEFAULT_MIN_COMPRESS_LENGTH = 512;
@@ -6,14 +9,32 @@ const MIN_COMPRESS_LENGTH = parseInt(process.env.MIN_COMPRESS_LENGTH, 10) || DEF
 const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 50; // ~100KB for PNG/GIFs
 const APNG_THRESHOLD_LENGTH = MIN_COMPRESS_LENGTH * 100; // ~200KB for animated PNGs;
 
+/**
+ * Checks if the MIME type indicates an image.
+ * @param {string} originType - The MIME type of the file.
+ * @returns {boolean} True if it's an image type, false otherwise.
+ */
 function isImageType(originType) {
-    return originType?.startsWith('image');
+    return typeof originType === 'string' && originType.startsWith('image');
 }
 
+/**
+ * Checks if the origin size meets the required threshold.
+ * @param {number} originSize - Size of the original file.
+ * @param {number} threshold - Minimum size threshold.
+ * @returns {boolean} True if the size is sufficient, false otherwise.
+ */
 function hasSufficientSize(originSize, threshold) {
     return typeof originSize === 'number' && originSize >= threshold;
 }
 
+/**
+ * Determines if an image is a transparent PNG/GIF that should not be compressed.
+ * @param {string} originType - The MIME type of the image.
+ * @param {number} originSize - Size of the original file.
+ * @param {boolean} webp - Indicates if WebP compression is requested.
+ * @returns {boolean} True if it's a small transparent image, false otherwise.
+ */
 function isTransparentImage(originType, originSize, webp) {
     return (
         !webp &&
@@ -22,40 +43,70 @@ function isTransparentImage(originType, originSize, webp) {
     );
 }
 
+/**
+ * Determines if a PNG is a small animated PNG that should not be compressed.
+ * @param {string} originType - The MIME type of the image.
+ * @param {Buffer} buffer - The file buffer.
+ * @param {number} originSize - Size of the original file.
+ * @returns {boolean} True if it's a small animated PNG, false otherwise.
+ */
 function isSmallAnimatedPng(originType, buffer, originSize) {
     return (
         originType?.endsWith('png') &&
-        typeof originSize === 'number' &&
-        originSize < APNG_THRESHOLD_LENGTH &&
+        hasSufficientSize(originSize, APNG_THRESHOLD_LENGTH) === false &&
+        isBufferValid(buffer) &&
         isAnimated(buffer)
     );
 }
 
+/**
+ * Validates if a buffer is non-null and of the expected type.
+ * @param {Buffer} buffer - The file buffer to validate.
+ * @returns {boolean} True if the buffer is valid, false otherwise.
+ */
+function isBufferValid(buffer) {
+    return Buffer.isBuffer(buffer);
+}
+
+/**
+ * Determines if an image should be compressed based on type, size, and properties.
+ * @param {Object} req - The HTTP request object.
+ * @param {Buffer} buffer - The file buffer.
+ * @returns {boolean} True if the image should be compressed, false otherwise.
+ */
 function shouldCompress(req, buffer) {
     const { originType, originSize, webp } = req.params || {};
 
     if (!isImageType(originType)) {
-        console.log(`Skipping compression: Non-image type ${originType}`);
+        logInfo(`Skipping compression: Non-image type "${originType}"`);
         return false;
     }
 
     if (!hasSufficientSize(originSize, MIN_COMPRESS_LENGTH)) {
-        console.log(`Skipping compression: Insufficient size (${originSize} bytes).`);
+        logInfo(`Skipping compression: Insufficient size (${originSize} bytes).`);
         return false;
     }
 
     if (isTransparentImage(originType, originSize, webp)) {
-        console.log(`Skipping compression: Transparent image, size=${originSize}`);
+        logInfo(`Skipping compression: Transparent image, size=${originSize}`);
         return false;
     }
 
     if (isSmallAnimatedPng(originType, buffer, originSize)) {
-        console.log(`Skipping compression: Small animated PNG, size=${originSize}`);
+        logInfo(`Skipping compression: Small animated PNG, size=${originSize}`);
         return false;
     }
 
-    console.log(`Compression applied: ${originType}, size=${originSize}`);
+    logInfo(`Compression applied: ${originType}, size=${originSize}`);
     return true;
+}
+
+/**
+ * Logs informational messages in a consistent format.
+ * @param {string} message - The message to log.
+ */
+function logInfo(message) {
+    console.log(`[INFO] ${message}`);
 }
 
 export default shouldCompress;
