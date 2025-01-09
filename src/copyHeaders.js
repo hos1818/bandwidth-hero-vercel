@@ -1,8 +1,26 @@
+/**
+ * Copies headers from a source object to a target object, excluding specified headers and optionally transforming values.
+ * @param {Object} source - The source object containing headers (e.g., a request or response object).
+ * @param {Object} target - The target object to copy headers to (e.g., a response object).
+ * @param {string[]} [additionalExcludedHeaders=[]] - Additional headers to exclude from copying.
+ * @param {Function} [transformFunction=null] - Optional transformation function for header values. Receives (key, value).
+ */
 function copyHeaders(source, target, additionalExcludedHeaders = [], transformFunction = null) {
     const defaultExcludedHeaders = [
         'host', 'connection', 'authorization', 'cookie', 'set-cookie',
         'content-length', 'transfer-encoding', ':status', ':method', ':path',
     ];
+
+    // Validate additionalExcludedHeaders
+    if (!Array.isArray(additionalExcludedHeaders) || 
+        !additionalExcludedHeaders.every(header => typeof header === 'string')) {
+        throw new Error('Invalid "additionalExcludedHeaders": must be an array of strings.');
+    }
+
+    // Validate transformFunction
+    if (transformFunction !== null && typeof transformFunction !== 'function') {
+        throw new Error('Invalid "transformFunction": must be a function or null.');
+    }
 
     // Merge and normalize excluded headers.
     const excludedHeaders = new Set([
@@ -18,7 +36,7 @@ function copyHeaders(source, target, additionalExcludedHeaders = [], transformFu
         throw new Error('Invalid target object: missing "setHeader" method.');
     }
 
-    // Copy headers.
+    // Iterate and copy headers.
     for (const [key, value] of Object.entries(source.headers)) {
         const normalizedKey = key.toLowerCase();
 
