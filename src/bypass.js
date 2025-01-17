@@ -1,57 +1,84 @@
 import { URL } from 'url';
 import { PassThrough } from 'stream';
+import winston from 'winston'; // Ensure you install and configure winston
+
+// Configure logger
+const logger = winston.createLogger({
+    level: 'info',
+    format: winston.format.json(),
+    transports: [
+        new winston.transports.Console(),
+        new winston.transports.File({ filename: 'error.log', level: 'error' })
+    ]
+});
 
 function extractFilename(urlString, defaultFilename = 'download') {
     try {
-        const urlPath = new URL(urlString).pathname;
-        const rawFilename = decodeURIComponent(urlPath.split('/').pop()) || defaultFilename;
-        // Sanitize filename: Allow alphanumeric, dots, underscores, and hyphens; replace others with underscores.
+        const urlObj = new URL(urlString);
+        const pathName = urlObj.pathname;
+        const rawFilename = decodeURIComponent(pathName.split('/').pop()) || defaultFilename;
         return rawFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    } catch {
+    } catch (error) {
+        logger.error(`Error extracting filename from URL: ${urlString}`, error);
         return defaultFilename;
     }
 }
 
 function setResponseHeaders(res, { contentType, contentLength, filename }) {
-    res.setHeader('Content-Type', contentType || 'application/octet-stream');
+    // Sanitize content type to prevent attacks
+    const safeContentType = /^[\w\/-]+$/.test(contentType) ? contentType : 'application/octet-stream';
+    res.setHeader('Content-Type', safeContentType);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('x-proxy-bypass', '1');
+    // Uncomment if x-proxy-bypass is necessary
+    // res.setHeader('x-proxy-bypass', '1');
     if (contentLength) res.setHeader('Content-Length', contentLength);
-    if (filename) res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    if (filename) {
+        // Properly escape filename for Content-Disposition
+        const safeFilename = encodeURIComponent(filename).replace(/%20/g, ' ');
+        res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
+    }
 }
 
 function bypass(req, res, buffer) {
     if (!req || !res) {
-        console.error('Request or Response objects are missing or invalid');
-        return res?.status(500)?.json({ error: 'Server error' });
+        logger.error('Request or Response objects are missing or invalid');
+        return res.status(500).json({ error: 'Server error' });
     }
 
     if (!Buffer.isBuffer(buffer)) {
-        console.error('Invalid or missing buffer');
+        logger.error('Invalid or missing buffer');
         return res.status(500).json({ error: 'Invalid or missing buffer' });
     }
 
+    let urlParam = req.params?.url || '';
+    let originType = req.params?.originType || 'application/octet-stream';
+
+    const filename = extractFilename(urlParam, 'download');
+
     try {
-        const filename = extractFilename(req.params?.url || '', 'download');
         setResponseHeaders(res, {
-            contentType: req.params?.originType,
+            contentType: originType,
             contentLength: buffer.length,
-            filename,
+            filename
         });
 
+        // Stream the buffer to avoid high memory usage
         const bufferStream = new PassThrough();
         bufferStream.end(buffer);
-        bufferStream.pipe(res).on('error', (streamError) => {
-            console.error('Error streaming buffer:', streamError);
-            if (!res.headersSent) {
-                res.status(500).json({ error: 'Error streaming content' });
-            }
-        });
 
-        console.log(`Successfully bypassed content for URL: ${req.params?.url}`);
+        bufferStream.pipe(res)
+            .on('error', (streamError) => {
+                logger.error('Error streaming buffer:', streamError);
+                if (!res.headersSent) {
+                    res.status(500).json({ error: 'Error streaming content' });
+                }
+            })
+            .on('finish', () => {
+                logger.info(`Successfully bypassed content for URL: ${urlParam}`);
+            });
     } catch (error) {
-        console.error('Error in bypass:', error);
+        logger.error('Error in bypass:', error);
         if (!res.headersSent) {
             res.status(500).json({ error: 'Error forwarding content' });
         }
