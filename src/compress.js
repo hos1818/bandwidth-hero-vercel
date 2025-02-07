@@ -1,6 +1,8 @@
 import sharp from 'sharp';
 import redirect from './redirect.js';
 import { URL } from 'url';
+import sanitizeFilename from 'sanitize-filename';
+
 
 const MAX_DIMENSION = 16384;
 const LARGE_IMAGE_THRESHOLD = 4000000;
@@ -14,6 +16,11 @@ const MEDIUM_IMAGE_THRESHOLD = 1000000;
  */
 async function compress(req, res, input) {
     try {
+        if (!Buffer.isBuffer(input) && typeof input !== 'string') {
+            logError('Invalid input: must be a Buffer or file path.');
+            return redirect(req, res);
+        }
+        
         const { format, compressionQuality, grayscale } = getCompressionParams(req);
 
         const sharpInstance = sharp(input);
