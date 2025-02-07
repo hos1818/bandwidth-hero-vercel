@@ -49,10 +49,10 @@ function bypass(req, res, buffer) {
         });
 
         if (buffer.length < 1024) {
-            // For small buffers, send directly
+            // For small buffers, send directly.
             res.send(buffer);
         } else {
-            // For larger buffers, use streaming
+            // For larger buffers, use streaming.
             const bufferStream = new PassThrough();
             bufferStream.end(buffer);
             bufferStream.pipe(res).on('error', (streamError) => {
