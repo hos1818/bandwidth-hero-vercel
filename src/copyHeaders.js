@@ -6,10 +6,11 @@
  * @param {Function} [transformFunction=null] - Optional transformation function for header values. Receives (key, value).
  */
 function copyHeaders(source, target, additionalExcludedHeaders = [], transformFunction = null) {
-    const defaultExcludedHeaders = [
+    const DEFAULT_EXCLUDED_HEADERS = [
         'host', 'connection', 'authorization', 'cookie', 'set-cookie',
         'content-length', 'transfer-encoding', ':status', ':method', ':path',
     ];
+    const PSEUDO_HEADERS = [':status', ':method', ':path', ':scheme', ':authority'];
 
     // Validate additionalExcludedHeaders
     if (!Array.isArray(additionalExcludedHeaders) || 
@@ -24,24 +25,32 @@ function copyHeaders(source, target, additionalExcludedHeaders = [], transformFu
 
     // Merge and normalize excluded headers.
     const excludedHeaders = new Set([
-        ...defaultExcludedHeaders,
+        ...DEFAULT_EXCLUDED_HEADERS,
         ...additionalExcludedHeaders.map(header => header.toLowerCase()),
     ]);
 
     // Validate source and target objects.
-    if (!source || typeof source.headers !== 'object' || source.headers === null) {
+    if (!source || typeof source.headers !== 'object' || source.headers === null || Object.keys(source.headers).length === 0) {
         throw new Error('Invalid source object: missing or invalid "headers" property.');
     }
     if (!target || typeof target.setHeader !== 'function') {
         throw new Error('Invalid target object: missing "setHeader" method.');
     }
 
-    // Iterate and copy headers.
+    // Dry-run validation for target.setHeader
+    try {
+        target.setHeader('test-header', 'test-value');
+        target.removeHeader('test-header'); // Clean up after validation.
+    } catch (error) {
+        throw new Error('Invalid target object: "setHeader" method failed during validation.');
+    }
+
+    // Iterate and copy headers
     for (const [key, value] of Object.entries(source.headers)) {
         const normalizedKey = key.toLowerCase();
 
-        // Skip excluded headers or pseudo-headers.
-        if (excludedHeaders.has(normalizedKey) || normalizedKey.startsWith(':')) {
+        // Skip excluded headers or pseudo-headers
+        if (excludedHeaders.has(normalizedKey) || PSEUDO_HEADERS.includes(normalizedKey)) {
             continue;
         }
 
@@ -51,15 +60,29 @@ function copyHeaders(source, target, additionalExcludedHeaders = [], transformFu
                 transformedValue = transformFunction(key, value);
                 if (transformedValue === null) continue; // Skip if transformation returns null.
             } catch (error) {
-                console.warn(`Error transforming header '${key}': ${error.message}`);
+                console.warn({ message: `Error transforming header '${key}'`, error: error.message });
+                if (process.env.STRICT_TRANSFORM === 'true') {
+                    throw error; // Stop processing if strict mode is enabled.
+                }
                 continue;
             }
         }
 
-        try {
-            target.setHeader(key, transformedValue);
-        } catch (error) {
-            console.error(`Error setting header '${key}': ${error.message}`);
+        // Handle duplicate headers
+        if (Array.isArray(transformedValue)) {
+            transformedValue.forEach(v => {
+                try {
+                    target.setHeader(key, v);
+                } catch (error) {
+                    console.error({ message: `Error setting header '${key}'`, error: error.message });
+                }
+            });
+        } else {
+            try {
+                target.setHeader(key, transformedValue);
+            } catch (error) {
+                console.error({ message: `Error setting header '${key}'`, error: error.message });
+            }
         }
     }
 }
