@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "basic-auth": "^2.0.1",
+    "sanitize-filename": "^1.6.3",
     "express": "^4.21.2",
     "axios": "^1.7.7",
     "got": "^14.4.5",
