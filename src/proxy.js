@@ -26,12 +26,8 @@ async function decompress(data, encoding) {
         gzip: () => gunzip(data),
         br: () => brotliDecompress ? brotliDecompress(data) : Promise.reject(new Error('Brotli not supported in this Node.js version')),
         deflate: () => inflate(data),
-        lzma: () => new Promise((resolve, reject) => {
-            lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result));
-        }),
-        lzma2: () => new Promise((resolve, reject) => {
-            lzma.decompress(data, (result, error) => error ? reject(error) : resolve(result));
-        }),
+        lzma: () => promisify(lzmaNative.decompress)(data),
+        lzma2: () => promisify(lzmaNative.decompress)(data),
         zstd: () => new Promise((resolve, reject) => {
             ZstdCodec.run(zstd => {
                 try {
@@ -43,7 +39,6 @@ async function decompress(data, encoding) {
             });
         }),
     };
-
     if (decompressors[encoding]) {
         try {
             return await decompressors[encoding]();
@@ -82,16 +77,13 @@ async function proxy(req, res) {
     };
 
     try {
-        let originResponse;
-
-        // Use `got` for both HTTP/1.1 and HTTP/2 protocols
         const gotResponse = await got(req.params.url, config);
-        originResponse = {
+        const originResponse = {
             data: gotResponse.rawBody,
             headers: gotResponse.headers,
             status: gotResponse.statusCode,
         };
-
+        
         if (!originResponse) {
             console.error("Origin response is empty");
             redirect(req, res);
@@ -112,9 +104,11 @@ async function proxy(req, res) {
 
         copyHeaders(originResponse, res);
         res.setHeader('content-encoding', 'identity');
-        req.params.originType = headers['content-type'] || '';
+        
+        const contentType = headers['content-type'] || detectContentTypeFromBuffer(decompressedData);
+        req.params.originType = contentType;
         req.params.originSize = decompressedData.length;
-
+        
         if (shouldCompress(req, decompressedData)) {
             compress(req, res, decompressedData);
         } else {
@@ -124,6 +118,12 @@ async function proxy(req, res) {
         console.error(`Request handling failed: ${error.message}`);
         redirect(req, res);
     }
+}
+
+function detectContentTypeFromBuffer(buffer) {
+    if (buffer.slice(0, 4).toString('hex') === '89504e47') return 'image/png';
+    if (buffer.slice(0, 3).toString('hex') === 'ffd8ff') return 'image/jpeg';
+    return 'application/octet-stream'; // Default fallback
 }
 
 export default proxy;
