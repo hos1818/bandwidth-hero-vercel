@@ -74,6 +74,7 @@ function parseBoolean(value, defaultValue) {
     if (falsyValues.includes(lowerValue)) return false;
     return defaultValue;
 }
+
 /**
  * Parse and validate quality parameter; enforce bounds and defaults.
  */
