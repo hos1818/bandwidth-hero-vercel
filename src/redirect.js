@@ -11,10 +11,9 @@ const RESTRICTED_HEADERS = ['content-length', 'cache-control', 'expires', 'date'
  */
 function isValidUrl(urlString) {
     if (!urlString) return false;
-
     try {
         const parsedUrl = new URL(normalizeUrl(urlString));
-        return ALLOWED_PROTOCOLS.includes(parsedUrl.protocol);
+        return ALLOWED_PROTOCOLS.includes(parsedUrl.protocol) && parsedUrl.hostname;
     } catch {
         return false;
     }
@@ -26,7 +25,7 @@ function isValidUrl(urlString) {
  * @returns {string} The normalized URL string.
  */
 function normalizeUrl(urlString) {
-    return urlString.trim().replace(/\/+$/, '').replace(/%20/g, ' ');
+    return decodeURIComponent(urlString.trim().replace(/\/+$/, ''));
 }
 
 /**
@@ -53,10 +52,13 @@ function isValidRedirectStatusCode(statusCode) {
  * @param {Response} res - Express response object.
  * @param {number} statusCode - The HTTP status code for the redirect.
  */
-function redirect(req, res, statusCode = 302) {
+function redirect(req, res, statusCode = 302, includeHtmlFallback = true) {
     if (!isValidRedirectStatusCode(statusCode)) {
-        console.error(`Invalid status code for redirect: ${statusCode}`);
-        return res.status(500).json({ error: 'Invalid redirect status code.' });
+        console.error({ message: 'Invalid status code for redirect', statusCode });
+        return res.status(500).json({
+            error: 'Invalid redirect status code.',
+            details: `Expected a status code between 300 and 399, but received ${statusCode}.`
+        });
     }
 
     if (res.headersSent) {
@@ -66,14 +68,13 @@ function redirect(req, res, statusCode = 302) {
 
     const targetUrl = req.params?.url;
     if (!targetUrl || !isValidUrl(targetUrl)) {
-        console.error(`Invalid or missing target URL: ${targetUrl}`);
+        console.error({ message: 'Invalid or missing target URL', targetUrl });
         return res.status(400).json({ error: 'Invalid or missing URL.' });
     }
 
-    // Normalize and encode the target URL
-    const normalizedUrl = normalizeUrl(targetUrl);
-
     try {
+        // Normalize and encode the target URL
+        const normalizedUrl = normalizeUrl(targetUrl);
         const encodedUrl = encodeURI(normalizedUrl);
 
         // Remove restricted headers
@@ -84,14 +85,16 @@ function redirect(req, res, statusCode = 302) {
         // Set response headers for the redirect
         res.setHeader('Location', encodedUrl);
 
-        console.log(`Redirecting to ${encodedUrl} with status code ${statusCode}.`);
+        console.log({ message: 'Redirecting', url: encodedUrl, statusCode });
 
         // Send the appropriate response
-        res.status(statusCode).send(
-            statusCode === 302 ? generateRedirectHtml(encodedUrl) : undefined
-        );
+        if (includeHtmlFallback && statusCode === 302) {
+            res.status(statusCode).send(generateRedirectHtml(encodedUrl));
+        } else {
+            res.status(statusCode).end();
+        }
     } catch (error) {
-        console.error(`Failed to redirect: ${error.message}`);
+        console.error({ message: 'Failed to redirect', error: error.message });
         res.status(500).json({ error: 'Internal server error during redirect.' });
     }
 }
