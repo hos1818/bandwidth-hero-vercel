@@ -7,6 +7,7 @@ const MAX_DIMENSION = 16384;
 const LARGE_IMAGE_THRESHOLD = 4_000_000; // Use underscores for readability
 const MEDIUM_IMAGE_THRESHOLD = 1_000_000;
 
+
 /**
  * Compress an image based on request parameters.
  * @param {Request} req - Express request object.
