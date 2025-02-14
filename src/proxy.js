@@ -10,6 +10,7 @@ import compress from './compress.js';
 import bypass from './bypass.js';
 import copyHeaders from './copyHeaders.js';
 
+
 // Cloudflare-specific status codes to handle
 const CLOUDFLARE_STATUS_CODES = [403, 503];
 
