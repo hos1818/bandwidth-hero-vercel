@@ -1,7 +1,5 @@
 import got from 'got';
 import http2wrapper from 'http2-wrapper';
-import pkg from 'lodash';
-const { pick } = pkg;
 import zlib from 'zlib';
 import { promisify } from 'util';
 import lzma from 'lzma-native';
@@ -20,14 +18,24 @@ const gunzip = promisify(zlib.gunzip);
 const inflate = promisify(zlib.inflate);
 const brotliDecompress = zlib.brotliDecompress ? promisify(zlib.brotliDecompress) : null;
 
+// Custom implementation of lodash's `pick`
+function pick(obj, keys) {
+    return keys.reduce((acc, key) => {
+        if (obj && Object.prototype.hasOwnProperty.call(obj, key)) {
+            acc[key] = obj[key];
+        }
+        return acc;
+    }, {});
+}
+
 // Centralized decompression utility
 async function decompress(data, encoding) {
     const decompressors = {
         gzip: () => gunzip(data),
         br: () => brotliDecompress ? brotliDecompress(data) : Promise.reject(new Error('Brotli not supported in this Node.js version')),
         deflate: () => inflate(data),
-        lzma: () => promisify(lzmaNative.decompress)(data),
-        lzma2: () => promisify(lzmaNative.decompress)(data),
+        lzma: () => promisify(lzma.decompress)(data),
+        lzma2: () => promisify(lzma.decompress)(data),
         zstd: () => new Promise((resolve, reject) => {
             ZstdCodec.run(zstd => {
                 try {
@@ -56,7 +64,7 @@ async function decompress(data, encoding) {
 async function proxy(req, res) {
     const config = {
         headers: {
-            ...pick(req.headers, ['cookie', 'dnt', 'referer']),
+            ...pick(req.headers, ['cookie', 'dnt', 'referer']), // Using custom `pick` function
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101 Firefox/91.0',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
@@ -75,7 +83,6 @@ async function proxy(req, res) {
         http2: true,  // Enable HTTP/2
         request: http2wrapper.auto
     };
-
     try {
         const gotResponse = await got(req.params.url, config);
         const originResponse = {
@@ -83,13 +90,12 @@ async function proxy(req, res) {
             headers: gotResponse.headers,
             status: gotResponse.statusCode,
         };
-        
+
         if (!originResponse) {
             console.error("Origin response is empty");
             redirect(req, res);
             return;
         }
-
         const { headers, data, status } = originResponse;
 
         // Check for Cloudflare-related status codes before decompression
@@ -101,14 +107,13 @@ async function proxy(req, res) {
 
         const contentEncoding = headers['content-encoding'];
         const decompressedData = contentEncoding ? await decompress(data, contentEncoding) : data;
-
         copyHeaders(originResponse, res);
         res.setHeader('content-encoding', 'identity');
-        
+
         const contentType = headers['content-type'] || detectContentTypeFromBuffer(decompressedData);
         req.params.originType = contentType;
         req.params.originSize = decompressedData.length;
-        
+
         if (shouldCompress(req, decompressedData)) {
             compress(req, res, decompressedData);
         } else {
