@@ -5,6 +5,7 @@ import express from 'express';
 import morgan from 'morgan';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import { injectSpeedInsights } from '@vercel/speed-insights';
 import authenticate from './src/authenticate.js';
 import params from './src/params.js';
 import proxy from './src/proxy.js';
@@ -14,6 +15,9 @@ dotenv.config();
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 443;
+
+// Inject Speed Insights middleware
+injectSpeedInsights(app);
 
 // Security Middleware
 app.use(helmet.hidePoweredBy());
