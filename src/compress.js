@@ -109,10 +109,10 @@ function prepareImage(sharpInstance, grayscale, isAnimated, metadata, pixelCount
 
 function applyArtifactReduction(sharpInstance, pixelCount) {
     const settings = pixelCount > LARGE_IMAGE_THRESHOLD
-        ? { blur: 0.4, sharpen: 0.8, saturation: 0.85 }
+        ? { blur: 0.5, sharpen: 0.7, saturation: 0.8 }
         : pixelCount > MEDIUM_IMAGE_THRESHOLD
-        ? { blur: 0.35, sharpen: 0.6, saturation: 0.9 }
-        : { blur: 0.3, sharpen: 0.5, saturation: 0.95 };
+        ? { blur: 0.4, sharpen: 0.6, saturation: 0.85 }
+        : { blur: 0.3, sharpen: 0.5, saturation: 0.9 };
 
     return sharpInstance
         .modulate({ saturation: settings.saturation })
