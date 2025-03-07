@@ -66,11 +66,11 @@ function isValidMetadata(metadata) {
 function optimizeAvifParams(width, height) {
     const area = width * height;
     if (area > LARGE_IMAGE_THRESHOLD) {
-        return { tileRows: 4, tileCols: 4, minQuantizer: 28, maxQuantizer: 48, effort: 4 };
+        return { tileRows: 4, tileCols: 4, minQuantizer: 28, maxQuantizer: 48, effort: 3 };
     } else if (area > MEDIUM_IMAGE_THRESHOLD) {
-        return { tileRows: 2, tileCols: 2, minQuantizer: 26, maxQuantizer: 46, effort: 5 };
+        return { tileRows: 2, tileCols: 2, minQuantizer: 26, maxQuantizer: 46, effort: 4 };
     } else {
-        return { tileRows: 1, tileCols: 1, minQuantizer: 24, maxQuantizer: 44, effort: 6 };
+        return { tileRows: 1, tileCols: 1, minQuantizer: 24, maxQuantizer: 44, effort: 5 };
     }
 }
 
