@@ -20,7 +20,7 @@
     "got": "^14.4.7",
     "http2-wrapper": "^2.2.1",
     "is-animated": "^2.0.2",
-    "sharp": "^0.34.1",
+    "sharp": "^0.34.2",
     "lzma-native": "^8.0.6",
     "zstd-codec": "^0.1.5",
     "validator": "^13.15.0",
