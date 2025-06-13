@@ -1,5 +1,4 @@
 import got from 'got';
-import http2wrapper from 'http2-wrapper';
 import zlib from 'zlib';
 import { promisify } from 'util';
 import shouldCompress from './shouldCompress.js';
@@ -7,6 +6,9 @@ import redirect from './redirect.js';
 import compress from './compress.js';
 import bypass from './bypass.js';
 import copyHeaders from './copyHeaders.js';
+import { Agent as HttpAgent } from 'http';
+import { Agent as HttpsAgent } from 'https';
+import { Http2Agent } from 'http2-wrapper';
 
 // Cloudflare-specific status codes to handle
 const CLOUDFLARE_STATUS_CODES = [403, 503];
@@ -68,6 +70,11 @@ async function proxy(req, res) {
         decompress: false, // handle decompression manually
         http2: true,
         request: http2wrapper.auto,
+        agent: {
+            http: new HttpAgent({ keepAlive: true }),
+            https: new HttpsAgent({ keepAlive: true }),
+            http2: new Http2Agent({ maxSessions: 100 }),
+        },
         retry: {
             limit: 3,
             methods: ['GET'],
