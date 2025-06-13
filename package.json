@@ -21,8 +21,6 @@
     "http2-wrapper": "^2.2.1",
     "is-animated": "^2.0.2",
     "sharp": "^0.34.2",
-    "lzma-native": "^8.0.6",
-    "zstd-codec": "^0.1.5",
     "validator": "^13.15.0",
     "morgan": "^1.10.0",
     "helmet": "^8.1.0",
