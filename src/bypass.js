@@ -2,6 +2,7 @@ import { URL } from 'url';
 import { PassThrough } from 'stream';
 import sanitizeFilename from 'sanitize-filename';
 
+
 const ALLOWED_CONTENT_TYPES = [
     'image/jpeg', 'image/png', 'image/gif', 'application/pdf', 'text/plain',
     'application/octet-stream', // Default fallback
