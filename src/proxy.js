@@ -2,8 +2,6 @@ import got from 'got';
 import http2wrapper from 'http2-wrapper';
 import zlib from 'zlib';
 import { promisify } from 'util';
-import lzma from 'lzma-native';
-import { ZstdCodec } from 'zstd-codec';
 import shouldCompress from './shouldCompress.js';
 import redirect from './redirect.js';
 import compress from './compress.js';
@@ -34,18 +32,6 @@ async function decompress(data, encoding) {
         gzip: () => gunzip(data),
         br: () => brotliDecompress ? brotliDecompress(data) : Promise.reject(new Error('Brotli not supported in this Node.js version')),
         deflate: () => inflate(data),
-        lzma: () => promisify(lzma.decompress)(data),
-        lzma2: () => promisify(lzma.decompress)(data),
-        zstd: () => new Promise((resolve, reject) => {
-            ZstdCodec.run(zstd => {
-                try {
-                    const simple = new zstd.Simple();
-                    resolve(simple.decompress(data));
-                } catch (error) {
-                    reject(error);
-                }
-            });
-        }),
     };
     if (decompressors[encoding]) {
         try {
