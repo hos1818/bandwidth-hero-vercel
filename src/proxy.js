@@ -67,7 +67,13 @@ async function proxy(req, res) {
         method: 'GET',
         decompress: false, // handle decompression manually
         http2: true,
-        request: http2wrapper.auto
+        request: http2wrapper.auto,
+        retry: {
+            limit: 3,
+            methods: ['GET'],
+            statusCodes: [408, 429, 500, 502, 503, 504],
+            errorCodes: ['ETIMEDOUT', 'ECONNRESET', 'EADDRINUSE', 'ECONNREFUSED'],
+        },
     };
     try {
         const gotResponse = await got(req.params.url, config);
