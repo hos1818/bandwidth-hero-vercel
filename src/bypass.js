@@ -36,9 +36,9 @@ function bypass(req, res, buffer) {
         console.error('Request or Response objects are missing or invalid');
         return res?.status(500)?.json({ error: 'Server error' });
     }
-    if (!Buffer.isBuffer(buffer) || buffer.length > MAX_BUFFER_SIZE) {
-        console.error('Invalid or oversized buffer');
-        return res.status(500).json({ error: 'Invalid or oversized buffer' });
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0 || buffer.length > MAX_BUFFER_SIZE) {
+      console.error('Invalid or oversized buffer');
+      return res.status(400).json({ error: 'Invalid or oversized content' });
     }
     try {
         const filename = extractFilename(req.params?.url || '', DEFAULT_FILENAME);
