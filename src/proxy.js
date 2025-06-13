@@ -80,18 +80,8 @@ async function proxy(req, res) {
         responseType: 'buffer',
         method: 'GET',
         decompress: false, // handle decompression manually
-        http2: {
-            maxSessionMemory: 100, // Increase session memory for more concurrent streams
-            settings: {
-                maxConcurrentStreams: 100, // Allow more streams per connection
-            },
-        },  // Enable HTTP/2
+        http2: true,
         request: http2wrapper.auto
-        retry: {
-            limit: 3,
-            methods: ['GET'],
-            statusCodes: [408, 429, 500, 502, 503, 504],
-        },
     };
     try {
         const gotResponse = await got(req.params.url, config);
