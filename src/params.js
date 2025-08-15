@@ -1,44 +1,39 @@
 import validator from 'validator';
 
-// Constants for quality range and default settings
-const DEFAULT_QUALITY = parseInt(process.env.DEFAULT_QUALITY, 10) || 40;
-const MAX_QUALITY = parseInt(process.env.MAX_QUALITY, 10) || 100;
-const MIN_QUALITY = parseInt(process.env.MIN_QUALITY, 10) || 10;
+// Constants for quality range and defaults
+const DEFAULT_QUALITY = clampInt(process.env.DEFAULT_QUALITY, 40, 10, 100);
+const MAX_QUALITY = clampInt(process.env.MAX_QUALITY, 100, 10, 100);
+const MIN_QUALITY = clampInt(process.env.MIN_QUALITY, 10, 1, 100);
 
-/**
- * Middleware to parse and validate query parameters.
- */
+// Middleware
 function params(req, res, next) {
     try {
         let { url } = req.query;
-
-        // Handle multiple URLs by returning an error (for better clarity) or process individually.
-        if (Array.isArray(url)) {
-            console.warn('Multiple URLs provided; only the first URL will be processed.');
-            url = url[0];
-        }
 
         if (!url) {
             return res.end('bandwidth-hero-proxy');
         }
 
-        // Normalize and validate the URL.
+        if (Array.isArray(url)) {
+            console.warn('Multiple URLs provided; using the first.');
+            url = url[0];
+        }
+
+        // Quick reject if it doesn't even start with http(s)
+        if (!/^https?:\/\//i.test(url)) {
+            return res.status(400).json({ error: 'URL must include protocol (http or https).' });
+        }
+
+        // Normalize & validate
         url = normalizeUrl(url);
         if (!isValidUrl(url)) {
             console.error({ message: 'Invalid URL received', url });
             return res.status(400).json({ error: 'Invalid URL. Ensure it includes the protocol (http or https).' });
         }
 
-        // Set validated and sanitized URL
         req.params.url = url;
-
-        // Determine output format: WebP by default, or JPEG if explicitly requested.
         req.params.webp = !req.query.jpeg;
-
-        // Set grayscale mode based on the "bw" parameter; default is true.
         req.params.grayscale = parseBoolean(req.query.bw, true);
-
-        // Parse and validate quality parameter; enforce bounds.
         req.params.quality = parseQuality(req.query.l, DEFAULT_QUALITY, MIN_QUALITY, MAX_QUALITY);
 
         next();
@@ -48,47 +43,41 @@ function params(req, res, next) {
     }
 }
 
-/**
- * Normalize URL by handling specific patterns.
- */
 function normalizeUrl(url) {
     return decodeURIComponent(url.trim().replace(/\/+$/, ''));
 }
 
-/**
- * Validate URL for required protocol and structure.
- */
 function isValidUrl(url) {
     return validator.isURL(url, { require_protocol: true });
 }
 
-/**
- * Parse boolean-like query parameters. Default if value is undefined.
- */
 function parseBoolean(value, defaultValue) {
     if (value === undefined) return defaultValue;
-    const truthyValues = ['true', '1', 'yes', 'on'];
-    const falsyValues = ['false', '0', 'no', 'off'];
-    const lowerValue = value.toLowerCase();
-    if (truthyValues.includes(lowerValue)) return true;
-    if (falsyValues.includes(lowerValue)) return false;
+    const v = String(value).trim().toLowerCase();
+    const truthy = new Set(['true', '1', 'yes', 'on']);
+    const falsy = new Set(['false', '0', 'no', 'off']);
+    if (truthy.has(v)) return true;
+    if (falsy.has(v)) return false;
     return defaultValue;
 }
 
-/**
- * Parse and validate quality parameter; enforce bounds and defaults.
- */
 function parseQuality(quality, defaultQuality, min, max) {
     const parsed = parseInt(quality, 10);
-    if (isNaN(parsed)) {
-        console.warn(`Invalid quality value "${quality}"; using default (${defaultQuality}).`);
+    if (Number.isNaN(parsed)) {
+        console.warn(`Invalid quality "${quality}"; using default (${defaultQuality}).`);
         return defaultQuality;
     }
     if (parsed < min || parsed > max) {
-        console.warn(`Quality value "${parsed}" out of bounds; clamping to range [${min}, ${max}].`);
+        console.warn(`Quality "${parsed}" out of bounds; clamping to [${min}, ${max}].`);
         return Math.min(Math.max(parsed, min), max);
     }
     return parsed;
+}
+
+function clampInt(value, fallback, min, max) {
+    const parsed = parseInt(value, 10);
+    if (Number.isNaN(parsed)) return fallback;
+    return Math.min(Math.max(parsed, min), max);
 }
 
 export default params;
