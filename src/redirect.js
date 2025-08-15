@@ -1,68 +1,73 @@
 import { URL } from 'url';
-import { STATUS_CODES } from 'http'; // For meaningful status code validation.
+import { STATUS_CODES } from 'http';
 
 const ALLOWED_PROTOCOLS = ['http:', 'https:'];
 const RESTRICTED_HEADERS = ['content-length', 'cache-control', 'expires', 'date', 'etag'];
 
 /**
- * Validates if the provided URL string is valid and uses allowed protocols.
- * @param {string} urlString - The URL string to validate.
- * @returns {boolean} True if the URL is valid, false otherwise.
+ * Checks if a given status code is a valid redirect code.
+ */
+function isValidRedirectStatusCode(statusCode) {
+    return STATUS_CODES[statusCode] !== undefined && statusCode >= 300 && statusCode < 400;
+}
+
+/**
+ * Safely normalizes a URL string: trims, removes trailing slashes, decodes spaces.
+ */
+function normalizeUrl(urlString) {
+    return urlString.trim().replace(/\/+$/, '');
+}
+
+/**
+ * Validates the given URL against allowed protocols.
  */
 function isValidUrl(urlString) {
     if (!urlString) return false;
     try {
         const parsedUrl = new URL(normalizeUrl(urlString));
-        return ALLOWED_PROTOCOLS.includes(parsedUrl.protocol) && parsedUrl.hostname;
+        return ALLOWED_PROTOCOLS.includes(parsedUrl.protocol) && Boolean(parsedUrl.hostname);
     } catch {
         return false;
     }
 }
 
 /**
- * Normalizes a URL string by trimming, removing trailing slashes, and decoding spaces.
- * @param {string} urlString - The URL string to normalize.
- * @returns {string} The normalized URL string.
+ * Escapes HTML special characters to prevent injection in fallback HTML.
  */
-function normalizeUrl(urlString) {
-    return decodeURIComponent(urlString.trim().replace(/\/+$/, ''));
+function escapeHtml(str) {
+    return str.replace(/[&<>"']/g, match => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    })[match]);
 }
 
 /**
  * Generates an HTML page for a redirect.
- * @param {string} url - The target URL.
- * @returns {string} HTML content for the redirect.
  */
 function generateRedirectHtml(url) {
-    return `<html><head><meta http-equiv="refresh" content="0;url=${url}"></head><body>Redirecting to <a href="${url}">${url}</a></body></html>`;
+    const safeUrl = escapeHtml(url);
+    return `<!DOCTYPE html>
+<html><head><meta http-equiv="refresh" content="0;url=${safeUrl}"></head>
+<body>Redirecting to <a href="${safeUrl}">${safeUrl}</a></body></html>`;
 }
 
 /**
- * Validates if the status code is valid for a redirect.
- * @param {number} statusCode - The HTTP status code to validate.
- * @returns {boolean} True if the status code is valid, false otherwise.
- */
-function isValidRedirectStatusCode(statusCode) {
-    return statusCode >= 300 && statusCode < 400;
-}
-
-/**
- * Handles the redirect logic for the response object.
- * @param {Request} req - Express request object.
- * @param {Response} res - Express response object.
- * @param {number} statusCode - The HTTP status code for the redirect.
+ * Redirect middleware handler.
  */
 function redirect(req, res, statusCode = 302, includeHtmlFallback = true) {
     if (!isValidRedirectStatusCode(statusCode)) {
         console.error({ message: 'Invalid status code for redirect', statusCode });
         return res.status(500).json({
             error: 'Invalid redirect status code.',
-            details: `Expected a status code between 300 and 399, but received ${statusCode}.`
+            details: `Expected 3xx, got ${statusCode}.`
         });
     }
 
     if (res.headersSent) {
-        console.error('Headers already sent; unable to redirect.');
+        console.error({ message: 'Headers already sent; cannot redirect.' });
         return;
     }
 
@@ -73,21 +78,18 @@ function redirect(req, res, statusCode = 302, includeHtmlFallback = true) {
     }
 
     try {
-        // Normalize and encode the target URL
         const normalizedUrl = normalizeUrl(targetUrl);
         const encodedUrl = encodeURI(normalizedUrl);
 
-        // Remove restricted headers
+        // Remove restricted headers (case-insensitive)
         RESTRICTED_HEADERS.forEach(header => {
             if (res.hasHeader(header)) res.removeHeader(header);
+            if (res.hasHeader(header.toLowerCase())) res.removeHeader(header.toLowerCase());
         });
 
-        // Set response headers for the redirect
         res.setHeader('Location', encodedUrl);
-
         console.log({ message: 'Redirecting', url: encodedUrl, statusCode });
 
-        // Send the appropriate response
         if (includeHtmlFallback && statusCode === 302) {
             res.status(statusCode).send(generateRedirectHtml(encodedUrl));
         } else {
