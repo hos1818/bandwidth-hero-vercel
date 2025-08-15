@@ -34,44 +34,44 @@ function setResponseHeaders(res, { contentType, contentLength, filename }) {
 
 function bypass(req, res, buffer) {
     if (!req || !res) {
-        console.error('Request or Response objects are missing or invalid');
+        console.error('Missing Request or Response object');
         return res?.status(500)?.json({ error: 'Server error' });
     }
+
     if (!Buffer.isBuffer(buffer) || buffer.length === 0 || buffer.length > MAX_BUFFER_SIZE) {
-      console.error('Invalid or oversized buffer');
-      return res.status(400).json({ error: 'Invalid or oversized content' });
+        console.error('Invalid or oversized buffer');
+        return res.status(400).json({ error: 'Invalid or oversized content' });
     }
+
     try {
-        const filename = extractFilename(req.params?.url || '', DEFAULT_FILENAME);
+        const { url = '', originType = '' } = req.params || {};
+        const filename = extractFilename(url, DEFAULT_FILENAME);
+
         setResponseHeaders(res, {
-            contentType: req.params?.originType,
+            contentType: originType,
             contentLength: buffer.length,
             filename,
         });
 
         if (buffer.length < 1024) {
-            // For small buffers, send directly.
             res.send(buffer);
         } else {
-            // For larger buffers, use streaming.
-            const bufferStream = new PassThrough();
-            bufferStream.end(buffer);
-            bufferStream.pipe(res).on('error', (streamError) => {
-                console.error({ message: 'Error streaming buffer', error: streamError });
-                if (!res.headersSent) {
-                    res.status(500).json({ error: 'Error streaming content' });
-                }
-            });
+            new PassThrough()
+                .end(buffer)
+                .pipe(res)
+                .on('error', (err) => {
+                    console.error('Stream error:', err.message);
+                    if (!res.headersSent) {
+                        res.status(500).json({ error: 'Error streaming content' });
+                    }
+                });
         }
 
-        console.log(`Successfully bypassed content for URL: ${req.params?.url}`);
+        console.log(`Bypassed content for URL: ${url}`);
     } catch (error) {
-        console.error({ message: 'Error in bypass', error: error.message });
+        console.error('Bypass error:', error.message);
         if (!res.headersSent) {
-            res.status(500).json({
-                error: 'Error forwarding content',
-                details: error.message,
-            });
+            res.status(500).json({ error: 'Error forwarding content' });
         }
     }
 }
