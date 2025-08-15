@@ -1,88 +1,67 @@
 /**
  * Copies headers from a source object to a target object, excluding specified headers and optionally transforming values.
- * @param {Object} source - The source object containing headers (e.g., a request or response object).
- * @param {Object} target - The target object to copy headers to (e.g., a response object).
- * @param {string[]} [additionalExcludedHeaders=[]] - Additional headers to exclude from copying.
+ * @param {Object} source - The source object containing headers.
+ * @param {Object} target - The target object to copy headers to.
+ * @param {string[]} [additionalExcludedHeaders=[]] - Extra headers to exclude.
  * @param {Function} [transformFunction=null] - Optional transformation function for header values. Receives (key, value).
  */
 function copyHeaders(source, target, additionalExcludedHeaders = [], transformFunction = null) {
     const DEFAULT_EXCLUDED_HEADERS = [
         'host', 'connection', 'authorization', 'cookie', 'set-cookie',
-        'content-length', 'transfer-encoding', ':status', ':method', ':path',
+        'content-length', 'transfer-encoding',
+        ':status', ':method', ':path', ':scheme', ':authority'
     ];
-    const PSEUDO_HEADERS = [':status', ':method', ':path', ':scheme', ':authority'];
 
-    // Validate additionalExcludedHeaders
-    if (!Array.isArray(additionalExcludedHeaders) || 
-        !additionalExcludedHeaders.every(header => typeof header === 'string')) {
-        throw new Error('Invalid "additionalExcludedHeaders": must be an array of strings.');
+    // Validate inputs
+    if (!Array.isArray(additionalExcludedHeaders) || !additionalExcludedHeaders.every(h => typeof h === 'string')) {
+        throw new Error('"additionalExcludedHeaders" must be an array of strings.');
     }
-
-    // Validate transformFunction
     if (transformFunction !== null && typeof transformFunction !== 'function') {
-        throw new Error('Invalid "transformFunction": must be a function or null.');
+        throw new Error('"transformFunction" must be a function or null.');
+    }
+    if (!source?.headers || typeof source.headers !== 'object') {
+        throw new Error('Invalid source: must have a "headers" object.');
+    }
+    if (typeof target?.setHeader !== 'function') {
+        throw new Error('Invalid target: must have a "setHeader" method.');
     }
 
-    // Merge and normalize excluded headers.
+    // Prepare exclusion set (all lowercase for case-insensitive match)
     const excludedHeaders = new Set([
         ...DEFAULT_EXCLUDED_HEADERS,
-        ...additionalExcludedHeaders.map(header => header.toLowerCase()),
+        ...additionalExcludedHeaders.map(h => h.toLowerCase())
     ]);
 
-    // Validate source and target objects.
-    if (!source || typeof source.headers !== 'object' || source.headers === null || Object.keys(source.headers).length === 0) {
-        throw new Error('Invalid source object: missing or invalid "headers" property.');
-    }
-    if (!target || typeof target.setHeader !== 'function') {
-        throw new Error('Invalid target object: missing "setHeader" method.');
-    }
+    for (const key in source.headers) {
+        if (!Object.prototype.hasOwnProperty.call(source.headers, key)) continue;
 
-    // Dry-run validation for target.setHeader
-    try {
-        target.setHeader('test-header', 'test-value');
-        target.removeHeader('test-header'); // Clean up after validation.
-    } catch (error) {
-        throw new Error('Invalid target object: "setHeader" method failed during validation.');
-    }
+        const lowerKey = key.toLowerCase();
+        if (excludedHeaders.has(lowerKey)) continue;
 
-    // Iterate and copy headers
-    for (const [key, value] of Object.entries(source.headers)) {
-        const normalizedKey = key.toLowerCase();
+        let value = source.headers[key];
 
-        // Skip excluded headers or pseudo-headers
-        if (excludedHeaders.has(normalizedKey) || PSEUDO_HEADERS.includes(normalizedKey)) {
-            continue;
-        }
-
-        let transformedValue = value;
         if (transformFunction) {
             try {
-                transformedValue = transformFunction(key, value);
-                if (transformedValue === null) continue; // Skip if transformation returns null.
-            } catch (error) {
-                console.warn({ message: `Error transforming header '${key}'`, error: error.message });
-                if (process.env.STRICT_TRANSFORM === 'true') {
-                    throw error; // Stop processing if strict mode is enabled.
-                }
+                value = transformFunction(key, value);
+                if (value === null) continue;
+            } catch (err) {
+                console.warn(`Error transforming header '${key}': ${err.message}`);
+                if (process.env.STRICT_TRANSFORM === 'true') throw err;
                 continue;
             }
         }
 
-        // Handle duplicate headers
-        if (Array.isArray(transformedValue)) {
-            transformedValue.forEach(v => {
-                try {
-                    target.setHeader(key, v);
-                } catch (error) {
-                    console.error({ message: `Error setting header '${key}'`, error: error.message });
-                }
-            });
-        } else {
-            try {
-                target.setHeader(key, transformedValue);
-            } catch (error) {
-                console.error({ message: `Error setting header '${key}'`, error: error.message });
-            }
+        // Ensure correct type
+        if (Array.isArray(value)) {
+            value = value.map(v => String(v));
+        } else if (value !== undefined) {
+            value = String(value);
+        }
+
+        try {
+            target.setHeader(key, value);
+        } catch (err) {
+            console.error(`Error setting header '${key}': ${err.message}`);
         }
     }
 }
