@@ -76,11 +76,14 @@ async function proxy(req, res) {
     const config = {
         headers: {
             ...pick(req.headers, ['cookie', 'dnt', 'referer']),
-            'user-agent': req.headers['user-agent'] || 'Mozilla/5.0',
-            'accept': req.headers['accept'] || 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'accept-language': req.headers['accept-language'] || 'en-US,en;q=0.5',
+            'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',  // Full UA for better fingerprint
+            'accept': req.headers['accept'] || 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',  // Prioritize images
+            'accept-language': req.headers['accept-language'] || 'en-US,en;q=0.9',
             'accept-encoding': 'gzip, deflate, br',
-            'upgrade-insecure-requests': '1',
+            'sec-fetch-dest': 'image',  // Indicates it's for an image resource
+            'sec-fetch-mode': 'no-cors',  // Common for cross-origin images
+            'sec-fetch-site': 'cross-site',
+            'connection': 'keep-alive',  // Add this for persistent connections
             'cache-control': 'no-cache, no-store, must-revalidate',
             'pragma': 'no-cache',
             'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
@@ -130,4 +133,5 @@ async function proxy(req, res) {
 }
 
 export default proxy;
+
 
