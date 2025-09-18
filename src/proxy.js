@@ -8,7 +8,7 @@ import bypass from './bypass.js';
 import copyHeaders from './copyHeaders.js';
 import http2wrapper from 'http2-wrapper';
 
-// Cloudfalre error codes
+// Cloudfalre error codes.
 const CLOUDFLARE_STATUS_CODES = [403, 503];
 
 // Promisified zlib functions
@@ -133,5 +133,6 @@ async function proxy(req, res) {
 }
 
 export default proxy;
+
 
 
