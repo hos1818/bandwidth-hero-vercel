@@ -81,18 +81,23 @@ async function proxy(req, res) {
 
     const config = {
         headers: {
-            ...pick(req.headers, ['cookie', 'dnt', 'referer']),
-            'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',  // Full UA for better fingerprint
-            'accept': req.headers['accept'] || 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',  // Prioritize images
+            ...pick(req.headers, ['cookie', 'dnt', 'referer', 'authorization']),
+            'user-agent': req.headers['user-agent'] ||
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+            'accept': req.headers['accept'] ||
+                'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
             'accept-language': req.headers['accept-language'] || 'en-US,en;q=0.9',
             'accept-encoding': 'gzip, deflate, br',
-            'sec-fetch-dest': 'image',  // Indicates it's for an image resource
-            'sec-fetch-mode': 'no-cors',  // Common for cross-origin images
+            'sec-fetch-dest': 'image',
+            'sec-fetch-mode': 'no-cors',
             'sec-fetch-site': 'cross-site',
-            'connection': 'keep-alive',  // Add this for persistent connections
+            'connection': 'keep-alive',
             'cache-control': 'no-cache, no-store, must-revalidate',
             'pragma': 'no-cache',
             'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="128"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
         },
         timeout: { request: 10000 },
         maxRedirects: 5,
@@ -117,16 +122,20 @@ async function proxy(req, res) {
             console.warn(`Cloudflare status ${statusCode}, bypassing`);
             return bypass(req, res, rawBody);
         }
-
+        
+        // Decompress if needed
         const contentEncoding = headers['content-encoding'];
         const decompressedData = await decompress(rawBody, contentEncoding);
-
+        
+        // Set headers
         copyHeaders({ headers, status: statusCode }, res);
         res.setHeader('content-encoding', 'identity');
 
-        req.params.originType = headers['content-type'] || detectContentTypeFromBuffer(decompressedData);
+        // Detect type & size
+        req.params.originType = headers['content-type'] || detectContentType(decompressedData);
         req.params.originSize = decompressedData.length;
 
+        // Compression decision
         if (shouldCompress(req, decompressedData)) {
             return compress(req, res, decompressedData);
         }
@@ -139,6 +148,7 @@ async function proxy(req, res) {
 }
 
 export default proxy;
+
 
 
 
