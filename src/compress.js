@@ -6,6 +6,7 @@ import sanitizeFilename from 'sanitize-filename';
 const MAX_DIMENSION = 16384;
 const LARGE_IMAGE_THRESHOLD = 4_000_000;
 const MEDIUM_IMAGE_THRESHOLD = 1_000_000;
+const TINY_IMAGE_THRESHOLD = 100_000;
 
 async function compress(req, res, input) {
     try {
@@ -70,12 +71,61 @@ function getCompressionParams(req) {
 
 function optimizeAvifParams(width, height) {
     const area = width * height;
-    if (area > LARGE_IMAGE_THRESHOLD) {
-        return { tileRows: 4, tileCols: 4, minQuantizer: 28, maxQuantizer: 48, effort: 3 };
+    if (area > LARGE_IMAGE_THRESHOLD * 2) {
+        return {
+            quality,
+            lossless: false,
+            effort: 2,
+            chromaSubsampling: '4:2:0',
+            tileRows: 4,
+            tileCols: 4,
+            minQuantizer: Math.floor(30 + (100 - quality) * 0.3),
+            maxQuantizer: Math.floor(50 + (100 - quality) * 0.3),
+            minQuantizerAlpha: 30,
+            maxQuantizerAlpha: 60,
+            subsample: 2
+        };
+    } else if (area > LARGE_IMAGE_THRESHOLD) {
+        return {
+            quality,
+            lossless: false,
+            effort: 3,
+            chromaSubsampling: '4:2:0',
+            tileRows: 3,
+            tileCols: 3,
+            minQuantizer: Math.floor(26 + (100 - quality) * 0.3),
+            maxQuantizer: Math.floor(46 + (100 - quality) * 0.3),
+            minQuantizerAlpha: 25,
+            maxQuantizerAlpha: 55,
+            subsample: 1
+        };
     } else if (area > MEDIUM_IMAGE_THRESHOLD) {
-        return { tileRows: 2, tileCols: 2, minQuantizer: 26, maxQuantizer: 46, effort: 4 };
+        return {
+            quality,
+            lossless: false,
+            effort: 4,
+            chromaSubsampling: '4:2:0',
+            tileRows: 2,
+            tileCols: 2,
+            minQuantizer: Math.floor(24 + (100 - quality) * 0.25),
+            maxQuantizer: Math.floor(44 + (100 - quality) * 0.25),
+            minQuantizerAlpha: 20,
+            maxQuantizerAlpha: 50
+        };
     }
-    return { tileRows: 1, tileCols: 1, minQuantizer: 24, maxQuantizer: 44, effort: 5 };
+    
+    return {
+        quality,
+        lossless: quality > 95,
+        effort: 5,
+        chromaSubsampling: quality > 90 ? '4:4:4' : '4:2:0',
+        tileRows: 1,
+        tileCols: 1,
+        minQuantizer: Math.floor(20 + (100 - quality) * 0.2),
+        maxQuantizer: Math.floor(40 + (100 - quality) * 0.2),
+        minQuantizerAlpha: 15,
+        maxQuantizerAlpha: 45
+    };
 }
 
 function getFormatOptions(format, quality, avifParams, isAnimated) {
@@ -121,3 +171,4 @@ function logError(message, error = null, req = null) {
 }
 
 export default compress;
+
