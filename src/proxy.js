@@ -22,7 +22,7 @@ const brotliDecompress = zlib.brotliDecompress ? promisify(zlib.brotliDecompress
 function pick(obj, keys) {
     if (!obj) return {};
     return keys.reduce((acc, key) => {
-        if (Object.prototype.hasOwnProperty.call(obj, key)) acc[key] = obj[key];
+        if (key in obj && obj[key] !== undefined) acc[key] = obj[key];
         return acc;
     }, {});
 }
@@ -133,6 +133,7 @@ async function proxy(req, res) {
 }
 
 export default proxy;
+
 
 
 
