@@ -54,13 +54,19 @@ async function decompress(data, encoding) {
 }
 
 /**
- * Detects basic content type from buffer signatures
+ * Detect content type using magic bytes + basic text detection
  */
-function detectContentTypeFromBuffer(buffer) {
+function detectContentType(buffer) {
     if (!Buffer.isBuffer(buffer) || buffer.length < 4) return 'application/octet-stream';
-    const hexSig = buffer.slice(0, 4).toString('hex');
-    if (hexSig.startsWith('89504e47')) return 'image/png';
-    if (hexSig.startsWith('ffd8ff')) return 'image/jpeg';
+    const hexSig = buffer.slice(0, 8).toString('hex');
+    for (const [signature, contentType] of CONTENT_TYPE_SIGNATURES) {
+        if (hexSig.startsWith(signature)) return contentType;
+    }
+    try {
+        const str = buffer.slice(0, 512).toString('utf8');
+        if (str.includes('<!DOCTYPE html') || str.includes('<html')) return 'text/html';
+        if (str.includes('<?xml')) return 'application/xml';
+    } catch {}
     return 'application/octet-stream';
 }
 
@@ -133,6 +139,7 @@ async function proxy(req, res) {
 }
 
 export default proxy;
+
 
 
 
