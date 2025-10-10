@@ -8,149 +8,122 @@ import bypass from './bypass.js';
 import copyHeaders from './copyHeaders.js';
 import http2wrapper from 'http2-wrapper';
 
-// Cloudfalre error codes.
+// --- Constants ---
 const CLOUDFLARE_STATUS_CODES = [403, 503];
-
-// Promisified zlib functions
 const gunzip = promisify(zlib.gunzip);
 const inflate = promisify(zlib.inflate);
 const brotliDecompress = zlib.brotliDecompress ? promisify(zlib.brotliDecompress) : null;
 
-/**
- * Picks specific keys from an object
- */
-function pick(obj, keys) {
-    if (!obj) return {};
-    return keys.reduce((acc, key) => {
-        if (key in obj && obj[key] !== undefined) acc[key] = obj[key];
-        return acc;
-    }, {});
-}
+// --- Utility: Pick ---
+const pick = (obj, keys) =>
+  keys.reduce((acc, key) => {
+    if (obj?.[key] !== undefined) acc[key] = obj[key];
+    return acc;
+  }, {});
 
-/**
- * Decompress buffer based on content-encoding
- */
+// --- Utility: Decompress ---
 async function decompress(data, encoding) {
-    if (!data || !encoding) return data;
+  if (!data || !encoding) return data;
+  const decompressors = {
+    gzip: gunzip,
+    deflate: inflate,
+    br: brotliDecompress
+  };
+  const fn = decompressors[encoding];
+  if (!fn) return data;
 
-    const decompressors = {
-        gzip: () => gunzip(data),
-        br: () => brotliDecompress ? brotliDecompress(data) : Promise.reject(new Error('Brotli not supported')),
-        deflate: () => inflate(data),
-    };
-
-    const decompressor = decompressors[encoding];
-    if (!decompressor) {
-        console.warn(`Unknown content-encoding: ${encoding}`);
-        return data;
-    }
-
-    try {
-        return await decompressor();
-    } catch (error) {
-        console.error(`Decompression failed for encoding ${encoding}:`, error);
-        return data; // Fallback to original buffer
-    }
+  try {
+    return await fn(data);
+  } catch (err) {
+    console.warn(`⚠️ Decompression failed (${encoding}):`, err.message);
+    return data; // fallback to raw
+  }
 }
 
-/**
- * Detect content type using magic bytes + basic text detection
- */
+// --- Utility: Content Type Detection (simplified, cacheable) ---
+const MAGIC_SIGNATURES = new Map([
+  ['89504e47', 'image/png'],
+  ['ffd8ff', 'image/jpeg'],
+  ['52494646', 'image/webp']
+]);
+
 function detectContentType(buffer) {
-    if (!Buffer.isBuffer(buffer) || buffer.length < 4) return 'application/octet-stream';
-    const hexSig = buffer.slice(0, 8).toString('hex');
-    for (const [signature, contentType] of CONTENT_TYPE_SIGNATURES) {
-        if (hexSig.startsWith(signature)) return contentType;
-    }
-    try {
-        const str = buffer.slice(0, 512).toString('utf8');
-        if (str.includes('<!DOCTYPE html') || str.includes('<html')) return 'text/html';
-        if (str.includes('<?xml')) return 'application/xml';
-    } catch {}
-    return 'application/octet-stream';
+  if (!Buffer.isBuffer(buffer)) return 'application/octet-stream';
+  const sig = buffer.toString('hex', 0, 4);
+  for (const [magic, type] of MAGIC_SIGNATURES) {
+    if (sig.startsWith(magic)) return type;
+  }
+  const str = buffer.slice(0, 512).toString('utf8');
+  if (/<!DOCTYPE html|<html/i.test(str)) return 'text/html';
+  if (/^<\?xml/i.test(str)) return 'application/xml';
+  return 'application/octet-stream';
 }
 
-/**
- * Main proxy function
- */
-async function proxy(req, res) {
-    if (!req?.params?.url) {
-        console.error('Missing target URL');
-        return res.status(400).json({ error: 'Missing URL parameter' });
+// --- Main Proxy ---
+export default async function proxy(req, res) {
+  const targetUrl = req?.params?.url;
+  if (!targetUrl) {
+    console.error('❌ Missing URL parameter');
+    return res.status(400).json({ error: 'Missing URL parameter' });
+  }
+
+  const config = {
+    headers: {
+      ...pick(req.headers, ['cookie', 'referer', 'authorization']),
+      'user-agent':
+        req.headers['user-agent'] ||
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128 Safari/537.36',
+      accept:
+        req.headers['accept'] ||
+        'image/avif,image/webp,image/*;q=0.8,*/*;q=0.5',
+      'accept-encoding': 'gzip, deflate, br',
+      'accept-language': req.headers['accept-language'] || 'en-US,en;q=0.9'
+    },
+    timeout: { request: 8000 },
+    responseType: 'buffer',
+    decompress: false,
+    http2: true,
+    request: http2wrapper.auto,
+    retry: {
+      limit: 2,
+      methods: ['GET'],
+      statusCodes: [408, 429, 500, 502, 503, 504],
+      errorCodes: ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED']
+    },
+    throwHttpErrors: false // handle manually
+  };
+
+  try {
+    const response = await got(targetUrl, config);
+    const { statusCode, headers, rawBody } = response;
+
+    // --- Cloudflare challenge handling ---
+    if (CLOUDFLARE_STATUS_CODES.includes(statusCode)) {
+      console.warn(`⚠️ Cloudflare response ${statusCode}`);
+      return bypass(req, res, rawBody);
     }
 
-    const config = {
-        headers: {
-            ...pick(req.headers, ['cookie', 'dnt', 'referer', 'authorization']),
-            'user-agent': req.headers['user-agent'] ||
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-            'accept': req.headers['accept'] ||
-                'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-            'accept-language': req.headers['accept-language'] || 'en-US,en;q=0.9',
-            'accept-encoding': 'gzip, deflate, br',
-            'sec-fetch-dest': 'image',
-            'sec-fetch-mode': 'no-cors',
-            'sec-fetch-site': 'cross-site',
-            'connection': 'keep-alive',
-            'cache-control': 'no-cache, no-store, must-revalidate',
-            'pragma': 'no-cache',
-            'x-forwarded-for': req.headers['x-forwarded-for'] || req.ip,
-            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="128"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"Windows"',
-        },
-        timeout: { request: 10000 },
-        maxRedirects: 5,
-        responseType: 'buffer',
-        method: 'GET',
-        decompress: false, // Manual handling
-        http2: true,
-        request: http2wrapper.auto,
-        retry: {
-            limit: 3,
-            methods: ['GET'],
-            statusCodes: [408, 429, 500, 502, 503, 504],
-            errorCodes: ['ETIMEDOUT', 'ECONNRESET', 'EADDRINUSE', 'ECONNREFUSED'],
-        },
-    };
+    // --- Decompress ---
+    const data = await decompress(rawBody, headers['content-encoding']);
+    const type = headers['content-type'] || detectContentType(data);
 
-    try {
-        const { rawBody, headers, statusCode } = await got(req.params.url, config);
+    // --- Set headers safely ---
+    copyHeaders({ headers, status: statusCode }, res);
+    res.setHeader('content-encoding', 'identity');
+    res.setHeader('x-proxy-cache', 'MISS');
 
-        // Handle Cloudflare challenge pages early
-        if (CLOUDFLARE_STATUS_CODES.includes(statusCode)) {
-            console.warn(`Cloudflare status ${statusCode}, bypassing`);
-            return bypass(req, res, rawBody);
-        }
-        
-        // Decompress if needed
-        const contentEncoding = headers['content-encoding'];
-        const decompressedData = await decompress(rawBody, contentEncoding);
-        
-        // Set headers
-        copyHeaders({ headers, status: statusCode }, res);
-        res.setHeader('content-encoding', 'identity');
+    // --- Attach meta info ---
+    req.params.originType = type;
+    req.params.originSize = data.length;
 
-        // Detect type & size
-        req.params.originType = headers['content-type'] || detectContentType(decompressedData);
-        req.params.originSize = decompressedData.length;
-
-        // Compression decision
-        if (shouldCompress(req, decompressedData)) {
-            return compress(req, res, decompressedData);
-        }
-        return bypass(req, res, decompressedData);
-
-    } catch (error) {
-        console.error(`Proxy request failed: ${error.message}`, error);
-        return redirect(req, res);
+    // --- Compress decision ---
+    if (shouldCompress(req, data)) {
+      return compress(req, res, data);
     }
+    return bypass(req, res, data);
+
+  } catch (error) {
+    console.error(`❌ Proxy failed: ${error.message}`);
+    return redirect(req, res);
+  }
 }
-
-export default proxy;
-
-
-
-
-
-
