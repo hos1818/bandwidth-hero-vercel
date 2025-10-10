@@ -15,7 +15,7 @@ const MAX_BUFFER_SIZE = Number(process.env.MAX_BUFFER_SIZE) || 10 * 1024 * 1024;
 const DEFAULT_FILENAME = process.env.DEFAULT_FILENAME || 'download';
 
 /**
- * Safely extracts and sanitizes the filename from a given URL.
+ * Safely extracts and sanitizes the filename from a given URL..
  */
 function extractFilename(urlString, defaultFilename = DEFAULT_FILENAME) {
   if (!urlString) return defaultFilename;
@@ -95,3 +95,4 @@ function bypass(req, res, buffer) {
 }
 
 export default bypass;
+
