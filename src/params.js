@@ -1,83 +1,106 @@
 import validator from 'validator';
 
-// Constants for quality range and defaults
+// Utility to safely clamp integer values
+const clampInt = (value, fallback, min, max) => {
+  const n = parseInt(value, 10);
+  return Number.isNaN(n) ? fallback : Math.min(Math.max(n, min), max);
+};
+
+// Constants
 const DEFAULT_QUALITY = clampInt(process.env.DEFAULT_QUALITY, 40, 10, 100);
 const MAX_QUALITY = clampInt(process.env.MAX_QUALITY, 100, 10, 100);
 const MIN_QUALITY = clampInt(process.env.MIN_QUALITY, 10, 1, 100);
 
-// Middleware
-function params(req, res, next) {
-    try {
-        let { url } = req.query;
-
-        if (!url) {
-            return res.end('bandwidth-hero-proxy');
-        }
-
-        if (Array.isArray(url)) {
-            console.warn('Multiple URLs provided; using the first.');
-            url = url[0];
-        }
-
-        // Quick reject if it doesn't even start with http(s)
-        if (!/^https?:\/\//i.test(url)) {
-            return res.status(400).json({ error: 'URL must include protocol (http or https).' });
-        }
-
-        // Normalize & validate
-        url = normalizeUrl(url);
-        if (!isValidUrl(url)) {
-            console.error({ message: 'Invalid URL received', url });
-            return res.status(400).json({ error: 'Invalid URL. Ensure it includes the protocol (http or https).' });
-        }
-
-        req.params.url = url;
-        req.params.webp = !req.query.jpeg;
-        req.params.grayscale = parseBoolean(req.query.bw, true);
-        req.params.quality = parseQuality(req.query.l, DEFAULT_QUALITY, MIN_QUALITY, MAX_QUALITY);
-
-        next();
-    } catch (error) {
-        console.error({ message: 'Error in params middleware', error: error.message });
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-}
-
+/**
+ * Normalizes a URL safely.
+ */
 function normalizeUrl(url) {
-    return decodeURIComponent(url.trim().replace(/\/+$/, ''));
+  if (typeof url !== 'string') return '';
+  return decodeURIComponent(url.trim().replace(/\/+$/, ''));
 }
 
+/**
+ * Validates URL syntax and required protocol.
+ */
 function isValidUrl(url) {
-    return validator.isURL(url, { require_protocol: true });
+  return validator.isURL(url, {
+    require_protocol: true,
+    protocols: ['http', 'https'],
+    allow_underscores: true,
+    disallow_auth: true,
+  });
 }
 
+/**
+ * Parses boolean-like query values (e.g. "1", "yes", "true").
+ */
 function parseBoolean(value, defaultValue) {
-    if (value === undefined) return defaultValue;
-    const v = String(value).trim().toLowerCase();
-    const truthy = new Set(['true', '1', 'yes', 'on']);
-    const falsy = new Set(['false', '0', 'no', 'off']);
-    if (truthy.has(v)) return true;
-    if (falsy.has(v)) return false;
-    return defaultValue;
+  if (value === undefined) return defaultValue;
+  const str = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(str)) return true;
+  if (['0', 'false', 'no', 'off'].includes(str)) return false;
+  return defaultValue;
 }
 
-function parseQuality(quality, defaultQuality, min, max) {
-    const parsed = parseInt(quality, 10);
-    if (Number.isNaN(parsed)) {
-        console.warn(`Invalid quality "${quality}"; using default (${defaultQuality}).`);
-        return defaultQuality;
-    }
-    if (parsed < min || parsed > max) {
-        console.warn(`Quality "${parsed}" out of bounds; clamping to [${min}, ${max}].`);
-        return Math.min(Math.max(parsed, min), max);
-    }
-    return parsed;
+/**
+ * Parses image quality within safe bounds.
+ */
+function parseQuality(q, defaultValue, min, max) {
+  const n = parseInt(q, 10);
+  if (Number.isNaN(n)) return defaultValue;
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
 }
 
-function clampInt(value, fallback, min, max) {
-    const parsed = parseInt(value, 10);
-    if (Number.isNaN(parsed)) return fallback;
-    return Math.min(Math.max(parsed, min), max);
+/**
+ * Main middleware to validate and prepare query parameters.
+ */
+function params(req, res, next) {
+  try {
+    let { url } = req.query;
+
+    if (!url) {
+      // Health-check / base response
+      return res.status(200).send('bandwidth-hero-proxy');
+    }
+
+    if (Array.isArray(url)) {
+      console.warn('[Params] Multiple URLs provided; using the first.');
+      url = url[0];
+    }
+
+    // Fast precheck (saves CPU if malformed)
+    if (!/^https?:\/\//i.test(url)) {
+      return res.status(400).json({
+        error: 'Invalid URL. Must include protocol (http or https).',
+      });
+    }
+
+    // Normalize and validate
+    url = normalizeUrl(url);
+    if (!isValidUrl(url)) {
+      console.error('[Params] Invalid URL:', url);
+      return res.status(400).json({
+        error: 'Invalid URL. Ensure it includes a valid protocol and domain.',
+      });
+    }
+
+    // Safe params extraction
+    req.params = {
+      ...req.params,
+      url,
+      webp: !req.query.jpeg,
+      grayscale: parseBoolean(req.query.bw, true),
+      quality: parseQuality(req.query.l, DEFAULT_QUALITY, MIN_QUALITY, MAX_QUALITY),
+    };
+
+    return next();
+  } catch (err) {
+    console.error('[Params Middleware Error]', err);
+    if (!res.headersSent)
+      res.status(500).json({ error: 'Internal server error in params middleware.' });
+  }
 }
 
 export default params;
