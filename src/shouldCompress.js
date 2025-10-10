@@ -3,82 +3,100 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Compression thresholds
+// --- Configuration (initialized once) ---
 const DEFAULT_MIN_COMPRESS_LENGTH = 512;
-const parsedEnvThreshold = Number(process.env.MIN_COMPRESS_LENGTH);
-const MIN_COMPRESS_LENGTH = Number.isFinite(parsedEnvThreshold) ? parsedEnvThreshold : DEFAULT_MIN_COMPRESS_LENGTH;
-const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 50;  // ~100KB
+const ENV_MIN_LENGTH = Number(process.env.MIN_COMPRESS_LENGTH);
+const MIN_COMPRESS_LENGTH = Number.isFinite(ENV_MIN_LENGTH)
+  ? ENV_MIN_LENGTH
+  : DEFAULT_MIN_COMPRESS_LENGTH;
+
+const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 50; // ~100KB
 const APNG_THRESHOLD_LENGTH = MIN_COMPRESS_LENGTH * 100;          // ~200KB
 
-function isImageType(originType) {
-    return typeof originType === 'string' && originType.startsWith('image/');
-}
+/**
+ * Utility: Safe integer validation.
+ */
+const isPositiveNumber = (n) => typeof n === 'number' && Number.isFinite(n) && n > 0;
 
-function hasSufficientSize(originSize, threshold) {
-    return typeof originSize === 'number' && originSize >= threshold;
-}
+/**
+ * Utility: Valid buffer check.
+ */
+const isBufferValid = (buffer) => Buffer.isBuffer(buffer) && buffer.length > 0;
 
-function isTransparentImage(originType, originSize, webp) {
-    return (
-        !webp &&
-        (originType === 'image/png' || originType === 'image/gif') &&
-        !hasSufficientSize(originSize, MIN_TRANSPARENT_COMPRESS_LENGTH)
-    );
-}
+/**
+ * Returns true if MIME type represents an image.
+ */
+const isImageType = (type) => typeof type === 'string' && type.startsWith('image/');
 
-function isSmallAnimatedPng(originType, buffer, originSize) {
-    if (originType !== 'image/png' || hasSufficientSize(originSize, APNG_THRESHOLD_LENGTH) || !isBufferValid(buffer)) {
-        return false;
-    }
-    try {
-        return isAnimated(buffer);
-    } catch (err) {
-        logInfo(`Skipping animation check due to error: ${err.message}`);
-        return false;
-    }
-}
+/**
+ * Returns true if file size meets threshold.
+ */
+const hasSufficientSize = (size, threshold) => isPositiveNumber(size) && size >= threshold;
 
-function isBufferValid(buffer) {
-    return Buffer.isBuffer(buffer) && buffer.length > 0;
-}
+/**
+ * Transparent PNG/GIF optimization: skip compression for very small images.
+ */
+const isTransparentImage = (type, size, webp) =>
+  !webp &&
+  (type === 'image/png' || type === 'image/gif') &&
+  !hasSufficientSize(size, MIN_TRANSPARENT_COMPRESS_LENGTH);
 
+/**
+ * Detects small animated PNGs (APNG) to skip unnecessary recompression.
+ */
+const isSmallAnimatedPng = (type, buffer, size) => {
+  if (type !== 'image/png' || hasSufficientSize(size, APNG_THRESHOLD_LENGTH) || !isBufferValid(buffer)) {
+    return false;
+  }
+  try {
+    return isAnimated(buffer);
+  } catch (err) {
+    console.warn(`[WARN] Animation check failed: ${err.message}`);
+    return false;
+  }
+};
+
+/**
+ * Determines if compression should be applied based on thresholds and content.
+ */
 function shouldCompress(req, buffer) {
-    const { originType: rawType, originSize, webp } = req.params || {};
-    const bufferValid = isBufferValid(buffer);
+  const params = req?.params || {};
+  const { originType: rawType, originSize, webp } = params;
 
-    if (!rawType || typeof originSize !== 'number' || !bufferValid) {
-        logInfo(`skip reason="invalid-input" originType=${rawType} originSize=${originSize} bufferValid=${bufferValid}`);
-        return false;
-    }
+  const validBuffer = isBufferValid(buffer);
+  if (!rawType || !isPositiveNumber(originSize) || !validBuffer) {
+    logSkip('invalid-input', { rawType, originSize, bufferValid: validBuffer });
+    return false;
+  }
 
-    const originType = rawType.toLowerCase();
+  const originType = rawType.toLowerCase();
 
-    if (!isImageType(originType)) {
-        logInfo(`skip reason="non-image" type=${originType}`);
-        return false;
-    }
+  if (!isImageType(originType)) {
+    return logSkip('non-image', { originType });
+  }
+  if (!hasSufficientSize(originSize, MIN_COMPRESS_LENGTH)) {
+    return logSkip('too-small', { originSize });
+  }
+  if (isTransparentImage(originType, originSize, webp)) {
+    return logSkip('transparent-small', { originType, originSize });
+  }
+  if (isSmallAnimatedPng(originType, buffer, originSize)) {
+    return logSkip('animated-small', { originType, originSize });
+  }
 
-    if (!hasSufficientSize(originSize, MIN_COMPRESS_LENGTH)) {
-        logInfo(`skip reason="too-small" size=${originSize} threshold=${MIN_COMPRESS_LENGTH}`);
-        return false;
-    }
-
-    if (isTransparentImage(originType, originSize, webp)) {
-        logInfo(`skip reason="transparent-small" type=${originType} size=${originSize}`);
-        return false;
-    }
-
-    if (isSmallAnimatedPng(originType, buffer, originSize)) {
-        logInfo(`skip reason="animated-small" type=${originType} size=${originSize}`);
-        return false;
-    }
-
-    logInfo(`compress reason="eligible" type=${originType} size=${originSize}`);
-    return true;
+  console.log(`[INFO] compress reason="eligible" type=${originType} size=${originSize}`);
+  return true;
 }
 
-function logInfo(message) {
-    console.log(`[INFO] ${message}`);
+/**
+ * Centralized structured logging for skips.
+ */
+function logSkip(reason, context = {}) {
+  const ctx = Object.entries(context)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(' ');
+  console.log(`[INFO] skip reason="${reason}" ${ctx}`);
+  return false;
 }
 
 export default shouldCompress;
