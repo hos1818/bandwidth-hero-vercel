@@ -1,52 +1,50 @@
-#!/usr/bin/env node
-'use strict';
-
 import express from 'express';
-import morgan from 'morgan';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import authenticate from './src/authenticate.js';
 import params from './src/params.js';
 import proxy from './src/proxy.js';
 
-// Load environment variables
+// Load environment variables early
 dotenv.config();
 
 const app = express();
-const PORT = parseInt(process.env.PORT, 10) || 443;
 
-// Security Middleware
-app.use(helmet.hidePoweredBy());
-app.use(helmet.xssFilter());
-app.use(helmet.noSniff());
-app.use(helmet.ieNoOpen());
-app.use(helmet.frameguard({ action: 'deny' }));
+// ✅ Modern Helmet configuration
 app.use(
-  helmet.contentSecurityPolicy({
-    useDefaults: true,
-    directives: {
-      defaultSrc: ["'self'"],
-      imgSrc: ["'self'", 'data:', 'https:'],
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+      },
     },
+    crossOriginEmbedderPolicy: false, // for images from multiple origins
   })
 );
 
-// HTTP request logging
-app.use(morgan('combined'));
+// ✅ Lightweight, structured logging (replaces morgan)
+app.use((req, _, next) => {
+  console.info(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
 
-// Trust proxy for secure cookies and HTTPS redirection
+// ✅ Trust proxy for HTTPS headers
 app.enable('trust proxy');
 
-// Routes
+// ✅ Core route
 app.get('/', authenticate, params, proxy);
 
-// Health check route
-app.get('/healthz', (req, res) => res.status(200).send('OK'));
+// ✅ Health and favicon routes
+app.get('/healthz', (_, res) => res.status(200).send('OK'));
+app.get('/favicon.ico', (_, res) => res.status(204).end());
 
-// Handle favicon requests
-app.get('/favicon.ico', (req, res) => res.status(204).end());
-
-// Start server
-app.listen(PORT, () => {
-  console.log(`Listening on port ${PORT}`);
+// ✅ Centralized error handler (prevents unhandled exceptions)
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal Server Error' });
 });
+
+// ❗️No app.listen() — export handler for Vercel
+export default app;
