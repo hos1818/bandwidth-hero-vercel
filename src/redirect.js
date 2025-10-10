@@ -5,7 +5,7 @@ const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
 const RESTRICTED_HEADERS = ['content-length', 'cache-control', 'expires', 'date', 'etag'];
 
 /**
- * Checks if a status code is a valid redirect code.
+ * Checks if a status code is a valid redirect code..
  */
 function isValidRedirectStatusCode(statusCode) {
   return Number.isInteger(statusCode) && statusCode >= 300 && statusCode < 400;
@@ -116,3 +116,4 @@ function redirect(req, res, statusCode = 302, includeHtmlFallback = true) {
 }
 
 export default redirect;
+
