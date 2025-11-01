@@ -140,15 +140,11 @@ export default async function proxy(req, res) {
     return bypass(req, res, data);
 
   } catch (error) {
-  const duration = Date.now() - startTime;  // ✅ ADD timing
-  console.error(`❌ Proxy failed after ${duration}ms:`, {
-    url: targetUrl.slice(0, 100),
-    error: error.message,
-    code: error.code
-  });
+  console.error(`❌ Proxy failed: ${error.message}`);
   return redirect(req, res);
   }
 }
+
 
 
 
