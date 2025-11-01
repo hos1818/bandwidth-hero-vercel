@@ -76,10 +76,13 @@ export default async function proxy(req, res) {
       accept:
         req.headers['accept'] ||
         'image/avif,image/webp,image/*;q=0.8,*/*;q=0.5',
-      'accept-encoding': 'gzip, deflate, br',
-      'accept-language': req.headers['accept-language'] || 'en-US,en;q=0.9'
+        'accept-encoding': 'gzip, deflate, br',
+        'accept-language': req.headers['accept-language'] || 'en-US,en;q=0.9'
     },
-    timeout: { request: 8000 },
+    timeout: { 
+      request: 15000,  // Allow larger images to download
+      response: 20000  // Total timeout
+    },
     responseType: 'buffer',
     decompress: false,
     http2: true,
@@ -127,3 +130,4 @@ export default async function proxy(req, res) {
     return redirect(req, res);
   }
 }
+
