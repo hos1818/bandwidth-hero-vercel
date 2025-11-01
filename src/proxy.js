@@ -93,14 +93,7 @@ export default async function proxy(req, res) {
     responseType: 'buffer',
     decompress: false,
     http2: true,
-    request: http2wrapper.auto,
-    retry: {
-      limit: 2,
-      methods: ['GET'],
-      statusCodes: [408, 429, 500, 502, 503, 504],
-      errorCodes: ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED']
-    },
-    throwHttpErrors: false // handle manually
+    request: http2wrapper.auto
   };
 
   try {
@@ -142,6 +135,7 @@ export default async function proxy(req, res) {
   return redirect(req, res);
   }
 }
+
 
 
 
