@@ -115,6 +115,11 @@ export default async function proxy(req, res) {
     res.setHeader('content-encoding', 'identity');
     res.setHeader('x-proxy-cache', 'MISS');
 
+     // Add security headers
+    res.setHeader('x-content-type-options', 'nosniff');
+    res.setHeader('x-frame-options', 'DENY');
+    res.setHeader('referrer-policy', 'strict-origin-when-cross-origin');
+    
     // --- Attach meta info ---
     req.params.originType = type;
     req.params.originSize = data.length;
@@ -130,4 +135,5 @@ export default async function proxy(req, res) {
     return redirect(req, res);
   }
 }
+
 
