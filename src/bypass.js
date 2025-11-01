@@ -74,9 +74,7 @@ function bypass(req, res, buffer) {
     }
 
     // Stream large buffers efficiently
-    const stream = new PassThrough();
-    stream.end(buffer);
-    stream.pipe(res);
+    res.end(buffer);
 
     stream.on('error', (err) => {
       console.error('[Bypass Stream Error]', err);
@@ -95,4 +93,5 @@ function bypass(req, res, buffer) {
 }
 
 export default bypass;
+
 
