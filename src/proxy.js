@@ -9,10 +9,12 @@ import copyHeaders from './copyHeaders.js';
 import http2wrapper from 'http2-wrapper';
 
 // --- Constants ---
+const MAX_INPUT_SIZE = 50 * 1024 * 1024; // 50MB
 const CLOUDFLARE_STATUS_CODES = [403, 503];
 const gunzip = promisify(zlib.gunzip);
 const inflate = promisify(zlib.inflate);
 const brotliDecompress = zlib.brotliDecompress ? promisify(zlib.brotliDecompress) : null;
+
 
 // --- Utility: Pick ---
 const pick = (obj, keys) =>
@@ -44,8 +46,14 @@ async function decompress(data, encoding) {
 const MAGIC_SIGNATURES = new Map([
   ['89504e47', 'image/png'],
   ['ffd8ff', 'image/jpeg'],
-  ['52494646', 'image/webp']
+  ['52494646', 'image/webp'],
+  ['47494638', 'image/gif'],        // ✅ NEW
+  ['424d', 'image/bmp'],             // ✅ NEW
+  ['00000', 'image/avif'],           // ✅ NEW
+  ['3c3f786d6c', 'image/svg+xml'],   // ✅ NEW
+  ['3c737667', 'image/svg+xml']      // ✅ NEW
 ]);
+
 
 function detectContentType(buffer) {
   if (!Buffer.isBuffer(buffer)) return 'application/octet-stream';
@@ -87,6 +95,7 @@ export default async function proxy(req, res) {
     decompress: false,
     http2: true,
     request: http2wrapper.auto,
+    maxResponseSize: MAX_INPUT_SIZE,
     retry: {
       limit: 2,
       methods: ['GET'],
@@ -131,9 +140,15 @@ export default async function proxy(req, res) {
     return bypass(req, res, data);
 
   } catch (error) {
-    console.error(`❌ Proxy failed: ${error.message}`);
-    return redirect(req, res);
+  const duration = Date.now() - startTime;  // ✅ ADD timing
+  console.error(`❌ Proxy failed after ${duration}ms:`, {
+    url: targetUrl.slice(0, 100),
+    error: error.message,
+    code: error.code
+  });
+  return redirect(req, res);
   }
 }
+
 
 
