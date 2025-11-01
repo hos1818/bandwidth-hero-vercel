@@ -41,8 +41,8 @@ function copyHeaders(source, target, excluded = [], transform = null) {
     try {
       // Normalize header value(s)
       if (Array.isArray(value)) {
-        for (const v of value) target.setHeader(key, String(v));
-      } else {
+        target.setHeader(key, value.map(String));
+      }else {
         target.setHeader(key, String(value));
       }
     } catch (err) {
@@ -52,3 +52,4 @@ function copyHeaders(source, target, excluded = [], transform = null) {
 }
 
 export default copyHeaders;
+
