@@ -46,11 +46,6 @@ export default async function compress(req, res, input) {
 
     if (grayscale) processed = processed.grayscale();
 
-    // Apply artifact reduction and resize in one branch
-    if (!isAnimated) {
-      processed = applyQualityPipeline(processed, pixelCount);
-    }
-
     if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
       processed = processed.resize({
         width: Math.min(width, MAX_DIMENSION),
@@ -116,20 +111,6 @@ function getFormatOptions(format, quality, avifParams, isAnimated) {
   return format === 'avif' ? { ...base, ...avifParams } : base;
 }
 
-function applyQualityPipeline(instance, pixelCount) {
-  const { blur, sharpen, saturation } =
-    pixelCount > LARGE_IMAGE_THRESHOLD
-      ? { blur: 0.5, sharpen: 0.7, saturation: 0.8 }
-      : pixelCount > MEDIUM_IMAGE_THRESHOLD
-      ? { blur: 0.4, sharpen: 0.6, saturation: 0.85 }
-      : { blur: 0.3, sharpen: 0.5, saturation: 0.9 };
-
-  return instance
-    .modulate({ saturation })
-    .blur(blur)
-    .sharpen(sharpen);
-}
-
 function sendImage(res, data, format, url, originSize, compressedSize) {
   const filename = sanitizeFilename(new URL(url).pathname.split('/').pop() || 'image') + `.${format}`;
   res.setHeader('Content-Type', `image/${format}`);
@@ -150,4 +131,5 @@ function fail(message, req, res, err = null) {
   }));
   redirect(req, res);
 }
+
 
