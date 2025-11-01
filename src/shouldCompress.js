@@ -10,8 +10,8 @@ const MIN_COMPRESS_LENGTH = Number.isFinite(ENV_MIN_LENGTH)
   ? ENV_MIN_LENGTH
   : DEFAULT_MIN_COMPRESS_LENGTH;
 
-const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 50; // ~100KB
-const APNG_THRESHOLD_LENGTH = MIN_COMPRESS_LENGTH * 100;          // ~200KB
+const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 100; // ~51KB
+const APNG_THRESHOLD_LENGTH = MIN_COMPRESS_LENGTH * 200;           // ~102KB
 
 /**
  * Utility: Safe integer validation.
@@ -100,3 +100,4 @@ function logSkip(reason, context = {}) {
 }
 
 export default shouldCompress;
+
