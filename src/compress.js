@@ -3,6 +3,11 @@ import redirect from './redirect.js';
 import { URL } from 'url';
 import sanitizeFilename from 'sanitize-filename';
 
+//Optimize Sharp Configuration
+sharp.cache({ memory: 50, files: 0 });
+sharp.concurrency(1);
+sharp.simd(true);
+
 const MAX_DIMENSION = 16384;
 const LARGE_IMAGE_THRESHOLD = 4_000_000;
 const MEDIUM_IMAGE_THRESHOLD = 1_000_000;
@@ -106,6 +111,7 @@ function getFormatOptions(format, quality, avifParams, isAnimated) {
     quality,
     alphaQuality: 80,
     chromaSubsampling: '4:2:0',
+    speed: 6,
     loop: isAnimated ? 0 : undefined
   };
   return format === 'avif' ? { ...base, ...avifParams } : base;
@@ -119,6 +125,9 @@ function sendImage(res, data, format, url, originSize, compressedSize) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('x-original-size', originSize);
   res.setHeader('x-bytes-saved', Math.max(originSize - compressedSize, 0));
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.setHeader('CDN-Cache-Control', 'public, max-age=31536000');
+  res.setHeader('Vercel-CDN-Cache-Control', 'public, max-age=31536000');
   res.status(200).end(data);
 }
 
@@ -126,10 +135,13 @@ function fail(message, req, res, err = null) {
   console.error(JSON.stringify({
     level: 'error',
     message,
-    url: req?.params?.url,
-    error: err?.message
+    url: req?.params?.url?.slice(0, 100),
+    error: err?.message,
+    stack: process.env.NODE_ENV === 'development' ? err?.stack : undefined
   }));
   redirect(req, res);
 }
+
+
 
 
