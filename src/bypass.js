@@ -6,9 +6,12 @@ const ALLOWED_CONTENT_TYPES = new Set([
   'image/jpeg',
   'image/png',
   'image/gif',
+  'image/webp',   // ✅ NEW
+  'image/avif',   // ✅ NEW
+  'image/svg+xml', // ✅ NEW
   'application/pdf',
   'text/plain',
-  'application/octet-stream',
+  'application/octet-stream'
 ]);
 
 const MAX_BUFFER_SIZE = Number(process.env.MAX_BUFFER_SIZE) || 10 * 1024 * 1024; // 10 MB default
@@ -37,15 +40,23 @@ function setResponseHeaders(res, { contentType, contentLength, filename }) {
   const safeType = ALLOWED_CONTENT_TYPES.has(contentType)
     ? contentType
     : 'application/octet-stream';
-
+  
   res.setHeader('Content-Type', safeType);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // ✅ CHANGED
   res.setHeader('X-Proxy-Bypass', '1');
-
-  if (contentLength) res.setHeader('Content-Length', contentLength);
-  if (filename) res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  
+  if (contentLength) {
+    res.setHeader('Content-Length', contentLength);
+  }
+  
+  // ✅ FIXED: Use inline for images
+  if (filename && safeType.startsWith('image/')) {
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+  } else if (filename) {
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  }
 }
 
 /**
@@ -69,12 +80,14 @@ function bypass(req, res, buffer) {
     });
 
     // Fast path for small responses
-    if (buffer.length < 2048) {
-      return res.end(buffer);
-    }
-
-    // Stream large buffers efficiently
-    res.end(buffer);
+    const stream = new PassThrough();
+    stream.end(buffer);
+    stream.pipe(res);
+    stream.on('error', (err) => { /* ... */ });
+    res.on('close', () => { stream.destroy(); });
+    
+    // ✅ SIMPLIFIED (direct send)
+    res.end(buffer);  // Works for all buffer sizes
 
     stream.on('error', (err) => {
       console.error('[Bypass Stream Error]', err);
@@ -93,5 +106,6 @@ function bypass(req, res, buffer) {
 }
 
 export default bypass;
+
 
 
