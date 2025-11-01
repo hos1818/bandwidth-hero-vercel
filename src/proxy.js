@@ -9,7 +9,6 @@ import copyHeaders from './copyHeaders.js';
 import http2wrapper from 'http2-wrapper';
 
 // --- Constants ---
-const MAX_INPUT_SIZE = 50 * 1024 * 1024; // 50MB
 const CLOUDFLARE_STATUS_CODES = [403, 503];
 const gunzip = promisify(zlib.gunzip);
 const inflate = promisify(zlib.inflate);
@@ -95,7 +94,6 @@ export default async function proxy(req, res) {
     decompress: false,
     http2: true,
     request: http2wrapper.auto,
-    maxResponseSize: MAX_INPUT_SIZE,
     retry: {
       limit: 2,
       methods: ['GET'],
@@ -144,6 +142,7 @@ export default async function proxy(req, res) {
   return redirect(req, res);
   }
 }
+
 
 
 
