@@ -22,6 +22,12 @@ function copyHeaders(source, target, excluded = [], transform = null) {
   const headers = source.headers;
   const strictMode = process.env.STRICT_TRANSFORM === 'true';
 
+  // Handle status code ✅ NEW
+  const statusCode = source.statusCode || source.status;
+  if (statusCode && typeof target.status === 'function' && statusCode >= 200) {
+    target.status(statusCode);
+  }
+
   for (const [key, rawValue] of Object.entries(headers)) {
     const lowerKey = key.toLowerCase();
     if (EXCLUDED.has(lowerKey)) continue;
@@ -42,7 +48,7 @@ function copyHeaders(source, target, excluded = [], transform = null) {
       // Normalize header value(s)
       if (Array.isArray(value)) {
         target.setHeader(key, value.map(String));
-      }else {
+      } else {
         target.setHeader(key, String(value));
       }
     } catch (err) {
@@ -52,4 +58,5 @@ function copyHeaders(source, target, excluded = [], transform = null) {
 }
 
 export default copyHeaders;
+
 
