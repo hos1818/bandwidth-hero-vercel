@@ -45,24 +45,37 @@ async function decompress(data, encoding) {
 const MAGIC_SIGNATURES = new Map([
   ['89504e47', 'image/png'],
   ['ffd8ff', 'image/jpeg'],
-  ['52494646', 'image/webp'],
-  ['47494638', 'image/gif'],        // ✅ NEW
-  ['424d', 'image/bmp'],             // ✅ NEW
-  ['00000', 'image/avif'],           // ✅ NEW
-  ['3c3f786d6c', 'image/svg+xml'],   // ✅ NEW
-  ['3c737667', 'image/svg+xml']      // ✅ NEW
+  ['52494646', 'image/webp'], // RIFF....WEBP
+  ['47494638', 'image/gif'],
+  ['424d', 'image/bmp'],
+  // The XML signature is 5 bytes, so we check a longer slice.
+  ['3c3f786d6c', 'application/xml'], // <?xml
+  ['3c737667', 'image/svg+xml'],    // <svg
+  ['3c21444f', 'image/svg+xml'],     // <!DOCTYPE
 ]);
-
 
 function detectContentType(buffer) {
   if (!Buffer.isBuffer(buffer)) return 'application/octet-stream';
-  const sig = buffer.toString('hex', 0, 4);
+
+  // 1. Check for binary signatures first
+  const hex = buffer.toString('hex', 0, 8); // Read more bytes for robust checks
   for (const [magic, type] of MAGIC_SIGNATURES) {
-    if (sig.startsWith(magic)) return type;
+    if (hex.startsWith(magic)) return type;
   }
+
+  // 2. Specific check for AVIF/ISOBMFF formats (ftyp box at offset 4)
+  if (buffer.length > 8 && buffer.toString('ascii', 4, 8) === 'ftyp') {
+    // Check for 'avif' or 'avis' brand within the ftyp box
+    if (buffer.length > 11 && (buffer.toString('ascii', 8, 12) === 'avif' || buffer.toString('ascii', 8, 12) === 'avis')) {
+      return 'image/avif';
+    }
+  }
+
+  // 3. Fallback to text-based checks for HTML/XML
   const str = buffer.slice(0, 512).toString('utf8');
   if (/<!DOCTYPE html|<html/i.test(str)) return 'text/html';
-  if (/^<\?xml/i.test(str)) return 'application/xml';
+  if (/^<\?xml/i.test(str)) return 'application/xml'; // Already checked, but good as a fallback
+
   return 'application/octet-stream';
 }
 
@@ -135,6 +148,7 @@ export default async function proxy(req, res) {
   return redirect(req, res);
   }
 }
+
 
 
 
