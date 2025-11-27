@@ -12,10 +12,17 @@ const MAX_DIMENSION = 16384;
 const LARGE_IMAGE_THRESHOLD = 4_000_000;
 const MEDIUM_IMAGE_THRESHOLD = 1_000_000;
 const MAX_PIXEL_LIMIT = 100_000_000; // safety for serverless memory
+const PROCESSING_TIMEOUT_MS = 60_000; // 60s max per image
 
 export default async function compress(req, res, input) {
   try {
     // --- Input validation ---
+  // Add timeout to entire processing
+    const timeout = setTimeout(() => {
+      if (processed) processed.destroy?.(); // sharp 0.33+ has destroy()
+      fail('Image processing timeout', req, res);
+    }, PROCESSING_TIMEOUT_MS);
+    
     if (!Buffer.isBuffer(input) && typeof input !== 'string') {
       return fail('Invalid input: must be Buffer or file path', req, res);
     }
@@ -68,10 +75,22 @@ export default async function compress(req, res, input) {
       res.setHeader('Content-Type', `image/${outputFormat}`);
       res.setHeader('Content-Disposition', 'inline');
       res.setHeader('X-Content-Type-Options', 'nosniff');
-      processed
-        .toFormat(outputFormat, formatOptions)
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+
+      const stream = processed.toFormat(outputFormat, formatOptions);
+
+      // Proper cleanup on client disconnect
+      req.socket.on('close', () => {
+        stream.destroy?.();
+      });
+
+      stream
         .pipe(res)
-        .on('error', err => fail('Streaming compression failed', req, res, err));
+        .on('error', (err) => {
+          if (!res.headersSent) fail('Streaming failed', req, res, err);
+        });
+
+      clearTimeout(timeout);
       return;
     }
 
@@ -79,9 +98,14 @@ export default async function compress(req, res, input) {
       .toFormat(outputFormat, formatOptions)
       .toBuffer({ resolveWithObject: true });
 
+    clearTimeout(timeout);
+    
     sendImage(res, data, outputFormat, req.params.url || '', req.params.originSize || 0, info.size);
 
   } catch (err) {
+    clearTimeout(timeout);
+    if (sharpInstance) sharpInstance.destroy?.();
+    if (processed) processed.destroy?.();
     fail('Error during image compression', req, res, err);
   }
 }
@@ -125,7 +149,7 @@ function sendImage(res, data, format, url, originSize, compressedSize) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('x-original-size', originSize);
   res.setHeader('x-bytes-saved', Math.max(originSize - compressedSize, 0));
-  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.setHeader('Cache-Control', 'public, max-age=31536000');
   res.setHeader('CDN-Cache-Control', 'public, max-age=31536000');
   res.setHeader('Vercel-CDN-Cache-Control', 'public, max-age=31536000');
   res.status(200).end(data);
@@ -141,6 +165,7 @@ function fail(message, req, res, err = null) {
   }));
   redirect(req, res);
 }
+
 
 
 
