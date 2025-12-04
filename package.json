@@ -9,15 +9,15 @@
     "type": "git",
     "url": "https://github.com/username/repo"
   },
-  "packageManager": "pnpm@10.22.0",
+  "packageManager": "pnpm@10.24.0",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "basic-auth": "^2.0.1",
     "sanitize-filename": "^1.6.3",
-    "express": "^5.1.0",
-    "got": "^14.6.3",
+    "express": "^5.2.1",
+    "got": "^14.6.5",
     "http2-wrapper": "^2.2.1",
     "is-animated": "^2.0.2",
     "sharp": "^0.34.5",
