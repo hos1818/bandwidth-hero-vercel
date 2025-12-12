@@ -1,105 +1,129 @@
-import validator from 'validator';
+import got from 'got';
+import zlib from 'zlib';
+import { promisify } from 'util';
+import shouldCompress from './shouldCompress.js';
+import redirect from './redirect.js';
+import compress from './compress.js';
+import bypass from './bypass.js';
+import copyHeaders from './copyHeaders.js';
+import http2wrapper from 'http2-wrapper';
 
-// --- Configuration ---
-const DEFAULT_QUALITY = 40;
+// --- Constants ---
+const CLOUDFLARE_STATUS_CODES = [403, 503];
+const gunzip = promisify(zlib.gunzip);
+const inflate = promisify(zlib.inflate);
+const brotliDecompress = zlib.brotliDecompress ? promisify(zlib.brotliDecompress) : null;
 
-// Helper: Safe integer parsing
-const getInt = (val, def, min, max) => {
-  const n = parseInt(val, 10);
-  return Number.isNaN(n) ? def : Math.min(Math.max(n, min), max);
-};
+// --- Utility: Pick ---
+const pick = (obj, keys) =>
+  keys.reduce((acc, key) => {
+    if (obj?.[key] !== undefined) acc[key] = obj[key];
+    return acc;
+  }, {});
 
-// Limits
-const MIN_QUALITY = getInt(process.env.MIN_QUALITY, 10, 1, 100);
-const MAX_QUALITY = getInt(process.env.MAX_QUALITY, 100, 10, 100);
-const DEF_QUALITY = getInt(process.env.DEFAULT_QUALITY, DEFAULT_QUALITY, MIN_QUALITY, MAX_QUALITY);
+// --- Utility: Decompress ---
+async function decompress(data, encoding) {
+  if (!data || !encoding) return data;
+  const decompressors = {
+    gzip: gunzip,
+    deflate: inflate,
+    br: brotliDecompress
+  };
+  const fn = decompressors[encoding];
+  if (!fn) return data;
 
-/**
- * Parses boolean-like query values.
- * Handles: "1", "true", "yes", "on" -> true
- */
-function parseBoolean(value, defaultValue = false) {
-  if (value === undefined || value === null) return defaultValue;
-  const str = String(value).trim().toLowerCase();
-  if (['1', 'true', 'yes', 'on'].includes(str)) return true;
-  if (['0', 'false', 'no', 'off'].includes(str)) return false;
-  return defaultValue;
-}
-
-/**
- * Validates the URL structure.
- * Enforces protocol and prevents simple localhost strings.
- */
-function isValidTargetUrl(url) {
-  if (!url || typeof url !== 'string') return false;
-  
-  return validator.isURL(url, {
-    protocols: ['http', 'https'],
-    require_protocol: true,
-    require_tld: true,       // Block "http://localhost" or "http://internal-server"
-    require_valid_protocol: true,
-    allow_underscores: true,
-    allow_fragments: false,  // Fragments (#) are irrelevant for backend proxies
-    allow_query_components: true
-  });
-}
-
-/**
- * Main Middleware
- * Unifies query parameters into req.params for downstream consumption.
- */
-function params(req, res, next) {
   try {
-    // 1. Extract URL
-    let { url } = req.query;
-
-    if (!url) {
-      // No URL provided? Return 200 OK so the proxy server itself can be pinged/monitored.
-      return res.status(200).send('bandwidth-hero-proxy');
-    }
-
-    // Handle duplicate params (?url=a&url=b) - take the first one
-    if (Array.isArray(url)) url = url[0];
-
-    // 2. Cleanup
-    // Note: Do NOT use decodeURIComponent here. Express req.query is already decoded.
-    // Double decoding breaks URLs that have encoded params inside them.
-    url = url.trim();
-
-    // 3. Validation
-    if (!isValidTargetUrl(url)) {
-      // Log invalid attempts for security auditing
-      console.warn(`[Params] Rejected invalid URL: ${url}`);
-      return res.status(400).json({ 
-        error: 'Invalid URL', 
-        details: 'URL must be absolute, contain a valid scheme (http/s), and a valid TLD.' 
-      });
-    }
-
-    // 4. Parse Options
-    // Logic: If 'jpeg' is true, webp is false. Default to WebP (unless jpeg=1).
-    const isJpeg = parseBoolean(req.query.jpeg, false);
-    
-    // Logic: Bandwidth saving usually implies Grayscale, but default should likely be Color 
-    // unless 'bw' is explicitly set to 1.
-    const isGrayscale = parseBoolean(req.query.bw, false);
-
-    const quality = getInt(req.query.l, DEF_QUALITY, MIN_QUALITY, MAX_QUALITY);
-
-    // 5. Attach to req.params
-    // We normalize everything into req.params so downstream logic (compress/bypass) 
-    // doesn't need to look at req.query.
-    req.params.url = url;
-    req.params.webp = !isJpeg;
-    req.params.grayscale = isGrayscale;
-    req.params.quality = quality;
-
-    next();
-
+    return await fn(data);
   } catch (err) {
-    console.error(`[Params] Error: ${err.message}`);
-    return res.status(500).json({ error: 'Parameter parsing failed' });
+    console.warn(`⚠️ Decompression failed (${encoding}):`, err.message);
+    return data; // fallback to raw
   }
 }
 
-export default params;
+// --- Utility: Content Type Detection (simplified, cacheable) ---
+const MAGIC_SIGNATURES = new Map([
+  ['89504e47', 'image/png'],
+  ['ffd8ff', 'image/jpeg'],
+  ['52494646', 'image/webp']
+]);
+
+function detectContentType(buffer) {
+  if (!Buffer.isBuffer(buffer)) return 'application/octet-stream';
+  const sig = buffer.toString('hex', 0, 4);
+  for (const [magic, type] of MAGIC_SIGNATURES) {
+    if (sig.startsWith(magic)) return type;
+  }
+  const str = buffer.slice(0, 512).toString('utf8');
+  if (/<!DOCTYPE html|<html/i.test(str)) return 'text/html';
+  if (/^<\?xml/i.test(str)) return 'application/xml';
+  return 'application/octet-stream';
+}
+
+// --- Main Proxy ---
+export default async function proxy(req, res) {
+  const targetUrl = req?.params?.url;
+  if (!targetUrl) {
+    console.error('❌ Missing URL parameter');
+    return res.status(400).json({ error: 'Missing URL parameter' });
+  }
+
+  const config = {
+    headers: {
+      ...pick(req.headers, ['cookie', 'referer', 'authorization']),
+      'user-agent':
+        req.headers['user-agent'] ||
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128 Safari/537.36',
+      accept:
+        req.headers['accept'] ||
+        'image/avif,image/webp,image/*;q=0.8,*/*;q=0.5',
+      'accept-encoding': 'gzip, deflate, br',
+      'accept-language': req.headers['accept-language'] || 'en-US,en;q=0.9'
+    },
+    timeout: { request: 8000 },
+    responseType: 'buffer',
+    decompress: false,
+    http2: true,
+    request: http2wrapper.auto,
+    retry: {
+      limit: 2,
+      methods: ['GET'],
+      statusCodes: [408, 429, 500, 502, 503, 504],
+      errorCodes: ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED']
+    },
+    throwHttpErrors: false // handle manually
+  };
+
+  try {
+    const response = await got(targetUrl, config);
+    const { statusCode, headers, rawBody } = response;
+
+    // --- Cloudflare challenge handling ---
+    if (CLOUDFLARE_STATUS_CODES.includes(statusCode)) {
+      console.warn(`⚠️ Cloudflare response ${statusCode}`);
+      return bypass(req, res, rawBody);
+    }
+
+    // --- Decompress ---
+    const data = await decompress(rawBody, headers['content-encoding']);
+    const type = headers['content-type'] || detectContentType(data);
+
+    // --- Set headers safely ---
+    copyHeaders({ headers, status: statusCode }, res);
+    res.setHeader('content-encoding', 'identity');
+    res.setHeader('x-proxy-cache', 'MISS');
+
+    // --- Attach meta info ---
+    req.params.originType = type;
+    req.params.originSize = data.length;
+
+    // --- Compress decision ---
+    if (shouldCompress(req, data)) {
+      return compress(req, res, data);
+    }
+    return bypass(req, res, data);
+
+  } catch (error) {
+    console.error(`❌ Proxy failed: ${error.message}`);
+    return redirect(req, res);
+  }
+}
