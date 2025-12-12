@@ -3,61 +3,61 @@ import redirect from './redirect.js';
 import { URL } from 'url';
 import sanitizeFilename from 'sanitize-filename';
 
-//Optimize Sharp Configuration
+// --- Sharp global configuration ---
 sharp.cache({ memory: 50, files: 0 });
 sharp.concurrency(1);
 sharp.simd(true);
 
+// --- Constants ---
 const MAX_DIMENSION = 16384;
-const LARGE_IMAGE_THRESHOLD = 4_000_000;
-const MEDIUM_IMAGE_THRESHOLD = 1_000_000;
-const MAX_PIXEL_LIMIT = 100_000_000; // safety for serverless memory
-const PROCESSING_TIMEOUT_MS = 60_000; // 60s max per image
+const MAX_PIXEL_LIMIT = 100_000_000; // safety against decompression bombs
+const PROCESSING_TIMEOUT_MS = 60_000; // max 60s per image
 
 export default async function compress(req, res, input) {
+  let sharpInstance = null;
+  let processed = null;
+  let timeout;
+
   try {
-    // --- Input validation ---
-  // Add timeout to entire processing
-    const timeout = setTimeout(() => {
-      if (processed) processed.destroy?.(); // sharp 0.33+ has destroy()
-      fail('Image processing timeout', req, res);
-    }, PROCESSING_TIMEOUT_MS);
-    
+    // ---- Validate input ----
     if (!Buffer.isBuffer(input) && typeof input !== 'string') {
       return fail('Invalid input: must be Buffer or file path', req, res);
     }
 
-    const { format, compressionQuality, grayscale } = getCompressionParams(req);
-    const sharpInstance = sharp(input, {
+    const { quality, grayscale } = getCompressionParams(req);
+
+    // ---- Timeout protection ----
+    timeout = setTimeout(() => {
+      processed?.destroy?.();
+      sharpInstance?.destroy?.();
+      fail('Image processing timeout', req, res);
+    }, PROCESSING_TIMEOUT_MS);
+
+    // ---- Initialize Sharp ----
+    sharpInstance = sharp(input, {
       animated: true,
-      limitInputPixels: MAX_PIXEL_LIMIT // prevent decompression bombs
+      limitInputPixels: MAX_PIXEL_LIMIT
     });
 
     const metadata = await sharpInstance.metadata();
-
     if (!metadata?.width || !metadata?.height) {
       return fail('Invalid or missing metadata', req, res);
     }
 
     const { width, height } = metadata;
-    const isAnimated = (metadata.pages || 1) > 1;
     const pixelCount = width * height;
+    const isAnimated = (metadata.pages || 1) > 1;
 
-    // --- Safety guard for extremely large files ---
     if (pixelCount > MAX_PIXEL_LIMIT) {
       return fail('Image too large for processing', req, res);
     }
 
-    const outputFormat = isAnimated ? 'webp' : format;
-    const avifParams = outputFormat === 'avif'
-      ? optimizeAvifParams(width, height)
-      : {};
-
-    // --- Processing chain (built dynamically) ---
-    let processed = sharpInstance.clone();
+    // ---- Build image pipeline ----
+    processed = sharpInstance.clone();
 
     if (grayscale) processed = processed.grayscale();
 
+    // Resize if dimensions exceed limits
     if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
       processed = processed.resize({
         width: Math.min(width, MAX_DIMENSION),
@@ -67,105 +67,104 @@ export default async function compress(req, res, input) {
       });
     }
 
-    // --- Compression and output ---
-    const formatOptions = getFormatOptions(outputFormat, compressionQuality, avifParams, isAnimated);
+    // ---- WebP Format Options ----
+    const formatOptions = {
+      quality,
+      alphaQuality: 80,
+      lossless: false,
+      effort: 4,
+      smartSubsample: true,
+      loop: isAnimated ? 0 : undefined
+    };
 
-    // If file >2MB, stream to response (saves RAM)
+    const outputFormat = 'webp';
+
+    // ---- Large inputs streamed directly (better RAM usage) ----
     if (Buffer.isBuffer(input) && input.length > 2_000_000) {
-      res.setHeader('Content-Type', `image/${outputFormat}`);
-      res.setHeader('Content-Disposition', 'inline');
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      setResponseHeaders(res, outputFormat);
 
       const stream = processed.toFormat(outputFormat, formatOptions);
 
-      // Proper cleanup on client disconnect
       req.socket.on('close', () => {
         stream.destroy?.();
       });
 
-      stream
-        .pipe(res)
-        .on('error', (err) => {
-          if (!res.headersSent) fail('Streaming failed', req, res, err);
-        });
+      stream.pipe(res).on('error', err => {
+        if (!res.headersSent) fail('Streaming failed', req, res, err);
+      });
 
       clearTimeout(timeout);
       return;
     }
 
+    // ---- Full buffer mode ----
     const { data, info } = await processed
       .toFormat(outputFormat, formatOptions)
       .toBuffer({ resolveWithObject: true });
 
     clearTimeout(timeout);
-    
-    sendImage(res, data, outputFormat, req.params.url || '', req.params.originSize || 0, info.size);
+
+    sendImage(
+      res,
+      data,
+      outputFormat,
+      req.params.url || '',
+      req.params.originSize || 0,
+      info.size
+    );
 
   } catch (err) {
     clearTimeout(timeout);
-    if (sharpInstance) sharpInstance.destroy?.();
-    if (processed) processed.destroy?.();
+    sharpInstance?.destroy?.();
+    processed?.destroy?.();
     fail('Error during image compression', req, res, err);
   }
 }
 
+// ---------------------------------------------------------------------------
+// Helper functions
+// ---------------------------------------------------------------------------
+
 function getCompressionParams(req) {
-  const format = req.params?.webp ? 'avif' : 'jpeg';
-  const compressionQuality = clamp(parseInt(req.params?.quality, 10) || 75, 10, 100);
-  const grayscale = req.params?.grayscale === 'true' || req.params?.grayscale === true;
-  return { format, compressionQuality, grayscale };
-}
-
-function clamp(v, min, max) {
-  return Math.min(Math.max(v, min), max);
-}
-
-function optimizeAvifParams(width, height) {
-  const area = width * height;
-  if (area > LARGE_IMAGE_THRESHOLD)
-    return { tileRows: 4, tileCols: 4, minQuantizer: 20, maxQuantizer: 40, effort: 4 };
-  if (area > MEDIUM_IMAGE_THRESHOLD)
-    return { tileRows: 2, tileCols: 2, minQuantizer: 28, maxQuantizer: 48, effort: 4 };
-  return { tileRows: 1, tileCols: 1, minQuantizer: 26, maxQuantizer: 46, effort: 5 };
-}
-
-function getFormatOptions(format, quality, avifParams, isAnimated) {
-  const base = {
-    quality,
-    alphaQuality: 80,
-    chromaSubsampling: '4:2:0',
-    speed: 6,
-    loop: isAnimated ? 0 : undefined
+  return {
+    quality: clamp(Number(req.params?.quality) || 75, 10, 100),
+    grayscale: req.params?.grayscale === 'true'
   };
-  return format === 'avif' ? { ...base, ...avifParams } : base;
 }
+
+const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
 
 function sendImage(res, data, format, url, originSize, compressedSize) {
-  const filename = sanitizeFilename(new URL(url).pathname.split('/').pop() || 'image') + `.${format}`;
-  res.setHeader('Content-Type', `image/${format}`);
+  const filename = sanitizeFilename(
+    new URL(url).pathname.split('/').pop() || 'image'
+  ) + `.${format}`;
+
+  setResponseHeaders(res, format);
+
   res.setHeader('Content-Length', data.length);
   res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('x-original-size', originSize);
   res.setHeader('x-bytes-saved', Math.max(originSize - compressedSize, 0));
-  res.setHeader('Cache-Control', 'public, max-age=31536000');
-  res.setHeader('CDN-Cache-Control', 'public, max-age=31536000');
-  res.setHeader('Vercel-CDN-Cache-Control', 'public, max-age=31536000');
+
   res.status(200).end(data);
 }
 
-function fail(message, req, res, err = null) {
-  console.error(JSON.stringify({
-    level: 'error',
-    message,
-    url: req?.params?.url?.slice(0, 100),
-    error: err?.message,
-    stack: process.env.NODE_ENV === 'development' ? err?.stack : undefined
-  }));
-  redirect(req, res);
+function setResponseHeaders(res, format) {
+  res.setHeader('Content-Type', `image/${format}`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'public, max-age=31536000');
+  res.setHeader('CDN-Cache-Control', 'public, max-age=31536000');
+  res.setHeader('Vercel-CDN-Cache-Control', 'public, max-age=31536000');
 }
 
-
-
-
+function fail(message, req, res, err = null) {
+  console.error(
+    JSON.stringify({
+      level: 'error',
+      message,
+      url: req?.params?.url,
+      error: err?.message
+    })
+  );
+  redirect(req, res);
+}
