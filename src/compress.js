@@ -124,10 +124,10 @@ function clamp(v, min, max) {
 function optimizeAvifParams(width, height) {
   const area = width * height;
   if (area > LARGE_IMAGE_THRESHOLD)
-    return { tileRows: 4, tileCols: 4, minQuantizer: 20, maxQuantizer: 40, effort: 4 };
+    return { tileRows: 4, tileCols: 4, minQuantizer: 20, maxQuantizer: 40, effort: 3 };
   if (area > MEDIUM_IMAGE_THRESHOLD)
-    return { tileRows: 2, tileCols: 2, minQuantizer: 28, maxQuantizer: 48, effort: 4 };
-  return { tileRows: 1, tileCols: 1, minQuantizer: 26, maxQuantizer: 46, effort: 5 };
+    return { tileRows: 2, tileCols: 2, minQuantizer: 28, maxQuantizer: 48, effort: 3 };
+  return { tileRows: 1, tileCols: 1, minQuantizer: 26, maxQuantizer: 46, effort: 4 };
 }
 
 function getFormatOptions(format, quality, avifParams, isAnimated) {
@@ -165,6 +165,7 @@ function fail(message, req, res, err = null) {
   }));
   redirect(req, res);
 }
+
 
 
 
