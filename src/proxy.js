@@ -7,7 +7,6 @@ import bypass from './bypass.js';
 import copyHeaders from './copyHeaders.js';
 
 const CLOUDFLARE_STATUS_CODES = new Set([403, 503]);
-const MAX_RESPONSE_SIZE = 25 * 1024 * 1024; // 25MB Hard limit to prevent RAM DoS.
 
 // --- Utility: Fast Content Type Detection ---
 // Direct byte comparison is 10x+ faster than .toString('hex')
@@ -70,8 +69,7 @@ export default async function proxy(req, res) {
     decompress: true, // Native decompression (Performant)
     throwHttpErrors: false, // Don't throw on 404/500/403 so we can handle them manually
     http2: true,
-    request: http2wrapper.auto,
-    limit: MAX_RESPONSE_SIZE // Safety limit
+    request: http2wrapper.auto
   };
 
   try {
