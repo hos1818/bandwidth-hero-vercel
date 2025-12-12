@@ -1,129 +1,106 @@
-import got from 'got';
-import zlib from 'zlib';
-import { promisify } from 'util';
-import shouldCompress from './shouldCompress.js';
-import redirect from './redirect.js';
-import compress from './compress.js';
-import bypass from './bypass.js';
-import copyHeaders from './copyHeaders.js';
-import http2wrapper from 'http2-wrapper';
+import validator from 'validator';
 
-// --- Constants ---
-const CLOUDFLARE_STATUS_CODES = [403, 503];
-const gunzip = promisify(zlib.gunzip);
-const inflate = promisify(zlib.inflate);
-const brotliDecompress = zlib.brotliDecompress ? promisify(zlib.brotliDecompress) : null;
+// Utility to safely clamp integer values
+const clampInt = (value, fallback, min, max) => {
+  const n = parseInt(value, 10);
+  return Number.isNaN(n) ? fallback : Math.min(Math.max(n, min), max);
+};
 
-// --- Utility: Pick ---
-const pick = (obj, keys) =>
-  keys.reduce((acc, key) => {
-    if (obj?.[key] !== undefined) acc[key] = obj[key];
-    return acc;
-  }, {});
+// Constants
+const DEFAULT_QUALITY = clampInt(process.env.DEFAULT_QUALITY, 40, 10, 100);
+const MAX_QUALITY = clampInt(process.env.MAX_QUALITY, 100, 10, 100);
+const MIN_QUALITY = clampInt(process.env.MIN_QUALITY, 10, 1, 100);
 
-// --- Utility: Decompress ---
-async function decompress(data, encoding) {
-  if (!data || !encoding) return data;
-  const decompressors = {
-    gzip: gunzip,
-    deflate: inflate,
-    br: brotliDecompress
-  };
-  const fn = decompressors[encoding];
-  if (!fn) return data;
+/**
+ * Normalizes a URL safely.
+ */
+function normalizeUrl(url) {
+  if (typeof url !== 'string') return '';
+  return decodeURIComponent(url.trim().replace(/\/+$/, ''));
+}
 
+/**
+ * Validates URL syntax and required protocol.
+ */
+function isValidUrl(url) {
+  return validator.isURL(url, {
+    require_protocol: true,
+    protocols: ['http', 'https'],
+    allow_underscores: true,
+    disallow_auth: true,
+  });
+}
+
+/**
+ * Parses boolean-like query values (e.g. "1", "yes", "true").
+ */
+function parseBoolean(value, defaultValue) {
+  if (value === undefined) return defaultValue;
+  const str = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(str)) return true;
+  if (['0', 'false', 'no', 'off'].includes(str)) return false;
+  return defaultValue;
+}
+
+/**
+ * Parses image quality within safe bounds.
+ */
+function parseQuality(q, defaultValue, min, max) {
+  const n = parseInt(q, 10);
+  if (Number.isNaN(n)) return defaultValue;
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
+}
+
+/**
+ * Main middleware to validate and prepare query parameters.
+ */
+function params(req, res, next) {
   try {
-    return await fn(data);
+    let { url } = req.query;
+
+    if (!url) {
+      // Health-check / base response
+      return res.status(200).send('bandwidth-hero-proxy');
+    }
+
+    if (Array.isArray(url)) {
+      console.warn('[Params] Multiple URLs provided; using the first.');
+      url = url[0];
+    }
+
+    // Fast precheck (saves CPU if malformed)
+    if (!/^https?:\/\//i.test(url)) {
+      return res.status(400).json({
+        error: 'Invalid URL. Must include protocol (http or https).',
+      });
+    }
+
+    // Normalize and validate
+    url = normalizeUrl(url);
+    if (!isValidUrl(url)) {
+      console.error('[Params] Invalid URL:', url);
+      return res.status(400).json({
+        error: 'Invalid URL. Ensure it includes a valid protocol and domain.',
+      });
+    }
+
+    // Safe params extraction
+    req.params = {
+      ...req.params,
+      url,
+      webp: !req.query.jpeg,
+      grayscale: parseBoolean(req.query.bw, true),
+      quality: parseQuality(req.query.l, DEFAULT_QUALITY, MIN_QUALITY, MAX_QUALITY),
+    };
+
+    return next();
   } catch (err) {
-    console.warn(`⚠️ Decompression failed (${encoding}):`, err.message);
-    return data; // fallback to raw
+    console.error('[Params Middleware Error]', err);
+    if (!res.headersSent)
+      res.status(500).json({ error: 'Internal server error in params middleware.' });
   }
 }
 
-// --- Utility: Content Type Detection (simplified, cacheable) ---
-const MAGIC_SIGNATURES = new Map([
-  ['89504e47', 'image/png'],
-  ['ffd8ff', 'image/jpeg'],
-  ['52494646', 'image/webp']
-]);
-
-function detectContentType(buffer) {
-  if (!Buffer.isBuffer(buffer)) return 'application/octet-stream';
-  const sig = buffer.toString('hex', 0, 4);
-  for (const [magic, type] of MAGIC_SIGNATURES) {
-    if (sig.startsWith(magic)) return type;
-  }
-  const str = buffer.slice(0, 512).toString('utf8');
-  if (/<!DOCTYPE html|<html/i.test(str)) return 'text/html';
-  if (/^<\?xml/i.test(str)) return 'application/xml';
-  return 'application/octet-stream';
-}
-
-// --- Main Proxy ---
-export default async function proxy(req, res) {
-  const targetUrl = req?.params?.url;
-  if (!targetUrl) {
-    console.error('❌ Missing URL parameter');
-    return res.status(400).json({ error: 'Missing URL parameter' });
-  }
-
-  const config = {
-    headers: {
-      ...pick(req.headers, ['cookie', 'referer', 'authorization']),
-      'user-agent':
-        req.headers['user-agent'] ||
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128 Safari/537.36',
-      accept:
-        req.headers['accept'] ||
-        'image/avif,image/webp,image/*;q=0.8,*/*;q=0.5',
-      'accept-encoding': 'gzip, deflate, br',
-      'accept-language': req.headers['accept-language'] || 'en-US,en;q=0.9'
-    },
-    timeout: { request: 8000 },
-    responseType: 'buffer',
-    decompress: false,
-    http2: true,
-    request: http2wrapper.auto,
-    retry: {
-      limit: 2,
-      methods: ['GET'],
-      statusCodes: [408, 429, 500, 502, 503, 504],
-      errorCodes: ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED']
-    },
-    throwHttpErrors: false // handle manually
-  };
-
-  try {
-    const response = await got(targetUrl, config);
-    const { statusCode, headers, rawBody } = response;
-
-    // --- Cloudflare challenge handling ---
-    if (CLOUDFLARE_STATUS_CODES.includes(statusCode)) {
-      console.warn(`⚠️ Cloudflare response ${statusCode}`);
-      return bypass(req, res, rawBody);
-    }
-
-    // --- Decompress ---
-    const data = await decompress(rawBody, headers['content-encoding']);
-    const type = headers['content-type'] || detectContentType(data);
-
-    // --- Set headers safely ---
-    copyHeaders({ headers, status: statusCode }, res);
-    res.setHeader('content-encoding', 'identity');
-    res.setHeader('x-proxy-cache', 'MISS');
-
-    // --- Attach meta info ---
-    req.params.originType = type;
-    req.params.originSize = data.length;
-
-    // --- Compress decision ---
-    if (shouldCompress(req, data)) {
-      return compress(req, res, data);
-    }
-    return bypass(req, res, data);
-
-  } catch (error) {
-    console.error(`❌ Proxy failed: ${error.message}`);
-    return redirect(req, res);
-  }
-}
+export default params;
