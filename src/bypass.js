@@ -1,79 +1,95 @@
 import { URL } from 'url';
-import { PassThrough } from 'stream';
 import sanitizeFilename from 'sanitize-filename';
 
+// --- Constants ---
+const MAX_BUFFER_SIZE = parseInt(process.env.MAX_BUFFER_SIZE, 10) || 25 * 1024 * 1024; // 25 MB matches proxy limit
+const DEFAULT_FILENAME = process.env.DEFAULT_FILENAME || 'file.bin';
 
-const ALLOWED_CONTENT_TYPES = [
-    'image/jpeg', 'image/png', 'image/gif', 'application/pdf', 'text/plain',
-    'application/octet-stream', // Default fallback
-];
-const MAX_BUFFER_SIZE = parseInt(process.env.MAX_BUFFER_SIZE, 10) || 10 * 1024 * 1024; // 10 MB default
-const DEFAULT_FILENAME = process.env.DEFAULT_FILENAME || 'download';
+/**
+ * Extract a safe filename from the URL or fall back to default.
+ */
+function extractFilename(urlString, defaultFilename) {
+  try {
+    const parsed = new URL(urlString);
+    const pathSegments = parsed.pathname.split('/');
+    
+    // Get last segment that isn't empty (handles trailing slashes)
+    const lastSegment = pathSegments.filter(Boolean).pop();
+    
+    if (!lastSegment) return defaultFilename;
 
-function extractFilename(urlString, defaultFilename = DEFAULT_FILENAME) {
-    try {
-        const urlPath = new URL(urlString).pathname;
-        const rawFilename = decodeURIComponent(urlPath.split('/').filter(Boolean).pop()) || defaultFilename;
-        return sanitizeFilename(rawFilename);
-    } catch {
-        return defaultFilename;
-    }
+    const decoded = decodeURIComponent(lastSegment);
+    return sanitizeFilename(decoded) || defaultFilename;
+  } catch {
+    return defaultFilename;
+  }
 }
 
-function setResponseHeaders(res, { contentType, contentLength, filename }) {
-    const safeContentType = ALLOWED_CONTENT_TYPES.includes(contentType)
-        ? contentType
-        : 'application/octet-stream';
-    res.setHeader('Content-Type', safeContentType);
+/**
+ * Determine if content should be viewed inline (browser) or downloaded.
+ */
+function getDisposition(contentType) {
+  if (!contentType) return 'attachment';
+  // Common types that are safe to display in-browser
+  if (/^(image\/(jpeg|png|gif|webp|avif|svg)|text\/|application\/pdf|video\/|audio\/)/i.test(contentType)) {
+    return 'inline';
+  }
+  return 'attachment';
+}
+
+/**
+ * Main Bypass Function
+ * Sends the buffered content directly to the client.
+ */
+export default function bypass(req, res, buffer) {
+  // 1. Validation
+  if (!res || res.headersSent) return;
+  
+  if (!Buffer.isBuffer(buffer)) {
+    console.error('❌ Bypass Error: Content is not a buffer');
+    return res.status(500).json({ error: 'Internal Server Error: Invalid content' });
+  }
+
+  // Double check size to prevent sending massive blobs that might choke the connection
+  if (buffer.length > MAX_BUFFER_SIZE) {
+    console.warn(`⚠️ Bypass Error: Buffer exceeds limit (${buffer.length} bytes)`);
+    return res.status(413).json({ error: 'Content too large' });
+  }
+
+  try {
+    // 2. Metadata Preparation
+    const originUrl = req.params?.url || '';
+    const contentType = req.params?.originType || 'application/octet-stream';
+    const filename = extractFilename(originUrl, DEFAULT_FILENAME);
+    const dispositionType = getDisposition(contentType);
+
+    // 3. Set Headers
+    // Security: Stop browser from MIME-sniffing the content
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('x-proxy-bypass', '1');
-    if (contentLength) res.setHeader('Content-Length', contentLength);
-    if (filename) res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    
+    // Metadata
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Content-Disposition', `${dispositionType}; filename="${filename}"`);
+    res.setHeader('X-Proxy-Bypass', '1');
+
+    // Cache Control (Optional: Set defaults if upstream didn't provide them via params)
+    // Assuming the main proxy function handles Cache-Control copying, we leave this alone 
+    // or set a default private cache.
+    if (!res.getHeader('Cache-Control')) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+
+    // 4. Send Data
+    // res.end(buffer) is the most efficient way to send a buffer in Node.
+    // Streaming (PassThrough) is unnecessary overhead when data is already fully in RAM.
+    res.end(buffer);
+
+  } catch (error) {
+    console.error(`❌ Bypass Failed: ${error.message}`);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to send content' });
+    }
+  }
 }
-
-function bypass(req, res, buffer) {
-    if (!req || !res) {
-        console.error('Request or Response objects are missing or invalid');
-        return res?.status(500)?.json({ error: 'Server error' });
-    }
-    if (!Buffer.isBuffer(buffer) || buffer.length === 0 || buffer.length > MAX_BUFFER_SIZE) {
-      console.error('Invalid or oversized buffer');
-      return res.status(400).json({ error: 'Invalid or oversized content' });
-    }
-    try {
-        const filename = extractFilename(req.params?.url || '', DEFAULT_FILENAME);
-        setResponseHeaders(res, {
-            contentType: req.params?.originType,
-            contentLength: buffer.length,
-            filename,
-        });
-
-        if (buffer.length < 1024) {
-            // For small buffers, send directly.
-            res.send(buffer);
-        } else {
-            // For larger buffers, use streaming.
-            const bufferStream = new PassThrough();
-            bufferStream.end(buffer);
-            bufferStream.pipe(res).on('error', (streamError) => {
-                console.error({ message: 'Error streaming buffer', error: streamError });
-                if (!res.headersSent) {
-                    res.status(500).json({ error: 'Error streaming content' });
-                }
-            });
-        }
-
-        console.log(`Successfully bypassed content for URL: ${req.params?.url}`);
-    } catch (error) {
-        console.error({ message: 'Error in bypass', error: error.message });
-        if (!res.headersSent) {
-            res.status(500).json({
-                error: 'Error forwarding content',
-                details: error.message,
-            });
-        }
-    }
-}
-
-export default bypass;
