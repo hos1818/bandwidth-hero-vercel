@@ -3,63 +3,77 @@ import redirect from './redirect.js';
 import { URL } from 'url';
 import sanitizeFilename from 'sanitize-filename';
 
-//Optimize Sharp Configuration
-sharp.cache({ memory: 50, files: 0 });
-sharp.concurrency(1);
-sharp.simd(true);
+// --- Sharp Configuration ---
+// Disable cache completely for serverless/proxy to prevent OOM
+sharp.cache(false);
+sharp.concurrency(1); // Keep concurrency low for consistent latency
+sharp.simd(true);     // Enable SIMD instructions for speed
 
+// --- Constants ---
 const MAX_DIMENSION = 16384;
-const LARGE_IMAGE_THRESHOLD = 4_000_000;
-const MEDIUM_IMAGE_THRESHOLD = 1_000_000;
-const MAX_PIXEL_LIMIT = 100_000_000; // safety for serverless memory
-const PROCESSING_TIMEOUT_MS = 60_000; // 60s max per image
+const MAX_PIXEL_LIMIT = 100_000_000;
+const STREAM_THRESHOLD = 2 * 1024 * 1024; // Stream files > 2MB
+const PROCESSING_TIMEOUT = 45000; // 45s hard timeout
 
 export default async function compress(req, res, input) {
-  try {
-    // --- Input validation ---
-  // Add timeout to entire processing
-    const timeout = setTimeout(() => {
-      if (processed) processed.destroy?.(); // sharp 0.33+ has destroy()
-      fail('Image processing timeout', req, res);
-    }, PROCESSING_TIMEOUT_MS);
-    
-    if (!Buffer.isBuffer(input) && typeof input !== 'string') {
-      return fail('Invalid input: must be Buffer or file path', req, res);
-    }
+  let sharpInstance = null;
+  let processingTimer = null;
 
-    const { format, compressionQuality, grayscale } = getCompressionParams(req);
-    const sharpInstance = sharp(input, {
-      animated: true,
-      limitInputPixels: MAX_PIXEL_LIMIT // prevent decompression bombs
+  try {
+    // 1. Timeout Race Condition
+    // Creates a promise that rejects after X seconds to prevent hung processes
+    const timeoutPromise = new Promise((_, reject) => {
+      processingTimer = setTimeout(() => {
+        reject(new Error('Processing Timeout'));
+      }, PROCESSING_TIMEOUT);
     });
 
-    const metadata = await sharpInstance.metadata();
+    // 2. Input Validation
+    if (!Buffer.isBuffer(input) && typeof input !== 'string') {
+      throw new Error('Invalid input: must be Buffer or file path');
+    }
+
+    // 3. Initialize Sharp
+    sharpInstance = sharp(input, {
+      animated: true,
+      limitInputPixels: MAX_PIXEL_LIMIT,
+      failOn: 'none'
+    });
+
+    // Race metadata extraction against timeout
+    const metadata = await Promise.race([sharpInstance.metadata(), timeoutPromise]);
 
     if (!metadata?.width || !metadata?.height) {
-      return fail('Invalid or missing metadata', req, res);
+      throw new Error('Invalid or missing metadata');
     }
 
-    const { width, height } = metadata;
-    const isAnimated = (metadata.pages || 1) > 1;
-    const pixelCount = width * height;
+    // 4. Determine Format & Compression Settings
+    const { width, height, pages } = metadata;
+    const isAnimated = (pages || 0) > 1;
+    
+    // Switch logic: If 'webp' param is present, default to WebP (not AVIF)
+    // to utilize the tuned settings.
+    const targetFormat = req.params?.webp || isAnimated ? 'webp' : 'jpeg';
+    
+    // Calculate Tuned Options (The core improvement)
+    const options = getTunedFormatOptions(
+      targetFormat, 
+      req.params?.quality, 
+      isAnimated, 
+      width
+    );
 
-    // --- Safety guard for extremely large files ---
-    if (pixelCount > MAX_PIXEL_LIMIT) {
-      return fail('Image too large for processing', req, res);
+    // 5. Processing Pipeline
+    let pipeline = sharpInstance.clone();
+
+    // Apply Grayscale
+    if (req.params?.grayscale) {
+      pipeline = pipeline.grayscale();
     }
 
-    const outputFormat = isAnimated ? 'webp' : format;
-    const avifParams = outputFormat === 'avif'
-      ? optimizeAvifParams(width, height)
-      : {};
-
-    // --- Processing chain (built dynamically) ---
-    let processed = sharpInstance.clone();
-
-    if (grayscale) processed = processed.grayscale();
-
+    // Apply Resize (Downscale only)
     if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
-      processed = processed.resize({
+      pipeline = pipeline.resize({
         width: Math.min(width, MAX_DIMENSION),
         height: Math.min(height, MAX_DIMENSION),
         fit: 'inside',
@@ -67,91 +81,134 @@ export default async function compress(req, res, input) {
       });
     }
 
-    // --- Compression and output ---
-    const formatOptions = getFormatOptions(outputFormat, compressionQuality, avifParams, isAnimated);
+    // 6. Output Strategy: Stream vs Buffer
+    // Stream large files to save RAM, Buffer small ones to calculate savings.
+    const isLargeFile = Buffer.isBuffer(input) && input.length > STREAM_THRESHOLD;
 
-    // If file >2MB, stream to response (saves RAM)
-    if (Buffer.isBuffer(input) && input.length > 2_000_000) {
-      res.setHeader('Content-Type', `image/${outputFormat}`);
-      res.setHeader('Content-Disposition', 'inline');
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.setHeader('Cache-Control', 'public, max-age=31536000');
-
-      const stream = processed.toFormat(outputFormat, formatOptions);
-
-      // Proper cleanup on client disconnect
-      req.socket.on('close', () => {
-        stream.destroy?.();
-      });
-
-      stream
-        .pipe(res)
-        .on('error', (err) => {
-          if (!res.headersSent) fail('Streaming failed', req, res, err);
-        });
-
-      clearTimeout(timeout);
-      return;
+    if (isLargeFile) {
+      clearTimeout(processingTimer);
+      return streamResponse(req, res, pipeline, targetFormat, options);
     }
 
-    const { data, info } = await processed
-      .toFormat(outputFormat, formatOptions)
-      .toBuffer({ resolveWithObject: true });
+    // Buffer processing
+    const { data, info } = await Promise.race([
+      pipeline
+        .toFormat(targetFormat, options)
+        .toBuffer({ resolveWithObject: true }),
+      timeoutPromise
+    ]);
 
-    clearTimeout(timeout);
-    
-    sendImage(res, data, outputFormat, req.params.url || '', req.params.originSize || 0, info.size);
+    clearTimeout(processingTimer);
+
+    sendImage(
+      res, 
+      data, 
+      targetFormat, 
+      req.params.url || '', 
+      req.params.originSize || 0, 
+      info.size
+    );
 
   } catch (err) {
-    clearTimeout(timeout);
-    if (sharpInstance) sharpInstance.destroy?.();
-    if (processed) processed.destroy?.();
-    fail('Error during image compression', req, res, err);
+    if (processingTimer) clearTimeout(processingTimer);
+    if (sharpInstance) sharpInstance.destroy(); // Force cleanup
+    
+    fail(err.message || 'Compression Error', req, res, err);
   }
 }
 
-function getCompressionParams(req) {
-  const format = req.params?.webp ? 'avif' : 'jpeg';
-  const compressionQuality = clamp(parseInt(req.params?.quality, 10) || 75, 10, 100);
-  const grayscale = req.params?.grayscale === 'true' || req.params?.grayscale === true;
-  return { format, compressionQuality, grayscale };
-}
+/**
+ * --- Tuned WebP Settings ---
+ * Applies the 3-step strategy:
+ * 1. Adaptive Quality (Retina scaling)
+ * 2. High Effort (MozJPEG effect)
+ * 3. Smart Subsampling (Sharp text/edges)
+ */
+function getTunedFormatOptions(format, qualityParam, isAnimated, width) {
+  // Parse base quality (default 75)
+  const baseQuality = clamp(parseInt(qualityParam, 10) || 75, 10, 100);
+  
+  // Strategy 1: Adaptive Quality
+  // High-density images (>1500px) hide artifacts well.
+  // We can safely drop quality by ~10-15% to save significant space.
+  let targetQuality = baseQuality;
+  if (width > 1500 && baseQuality > 50) {
+    targetQuality = Math.max(baseQuality - 10, 50);
+  }
 
-function clamp(v, min, max) {
-  return Math.min(Math.max(v, min), max);
-}
-
-function optimizeAvifParams(width, height) {
-  const area = width * height;
-  if (area > LARGE_IMAGE_THRESHOLD)
-    return { tileRows: 4, tileCols: 4, minQuantizer: 20, maxQuantizer: 40, effort: 4 };
-  if (area > MEDIUM_IMAGE_THRESHOLD)
-    return { tileRows: 2, tileCols: 2, minQuantizer: 28, maxQuantizer: 48, effort: 4 };
-  return { tileRows: 1, tileCols: 1, minQuantizer: 26, maxQuantizer: 46, effort: 5 };
-}
-
-function getFormatOptions(format, quality, avifParams, isAnimated) {
-  const base = {
-    quality,
-    alphaQuality: 80,
-    chromaSubsampling: '4:2:0',
-    speed: 6,
-    loop: isAnimated ? 0 : undefined
+  const common = {
+    quality: targetQuality,
   };
-  return format === 'avif' ? { ...base, ...avifParams } : base;
+
+  if (format === 'webp') {
+    return {
+      ...common,
+      // Strategy 2: Maximize Effort
+      // Level 6 squeezes ~10-15% more size out vs default 4.
+      // Slower, but much faster than AVIF.
+      effort: 6,
+      
+      // Strategy 3: Smart Subsampling
+      // Prevents color blurring on sharp edges/text.
+      smartSubsample: true,
+      
+      // Additional Tuning
+      alphaQuality: 80, // Keep transparency clean
+      loop: isAnimated ? 0 : undefined,
+      force: true // Ensure output is WebP
+    };
+  }
+
+  if (format === 'jpeg') {
+    return {
+      ...common,
+      mozjpeg: true, // Use Mozilla's efficient encoder
+      progressive: true,
+      chromaSubsampling: '4:2:0'
+    };
+  }
+  
+  // Fallback for others
+  return common;
+}
+
+function streamResponse(req, res, pipeline, format, options) {
+  res.setHeader('Content-Type', `image/${format}`);
+  res.setHeader('Content-Disposition', 'inline');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  // Long cache for immutable content
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); 
+
+  const stream = pipeline.toFormat(format, options);
+
+  // Safety: Destroy stream if client disconnects to save CPU
+  req.on('close', () => stream.destroy());
+
+  stream
+    .on('error', (err) => {
+      // If headers aren't sent, we can try to fail gracefully, 
+      // otherwise the stream just dies (expected behavior).
+      if (!res.headersSent) fail('Streaming failed', req, res, err);
+      else console.error(`[Stream Error] ${err.message}`);
+    })
+    .pipe(res);
 }
 
 function sendImage(res, data, format, url, originSize, compressedSize) {
   const filename = sanitizeFilename(new URL(url).pathname.split('/').pop() || 'image') + `.${format}`;
+  
   res.setHeader('Content-Type', `image/${format}`);
   res.setHeader('Content-Length', data.length);
   res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('x-original-size', originSize);
   res.setHeader('x-bytes-saved', Math.max(originSize - compressedSize, 0));
-  res.setHeader('Cache-Control', 'public, max-age=31536000');
+  
+  // Cache Control
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
   res.setHeader('CDN-Cache-Control', 'public, max-age=31536000');
   res.setHeader('Vercel-CDN-Cache-Control', 'public, max-age=31536000');
+  
   res.status(200).end(data);
 }
 
@@ -161,12 +218,16 @@ function fail(message, req, res, err = null) {
     message,
     url: req?.params?.url?.slice(0, 100),
     error: err?.message,
+    // Only show stack trace in dev
     stack: process.env.NODE_ENV === 'development' ? err?.stack : undefined
   }));
-  redirect(req, res);
+  
+  // Fallback to original
+  if (!res.headersSent) {
+    redirect(req, res);
+  }
 }
 
-
-
-
-
+function clamp(v, min, max) {
+  return Math.min(Math.max(v, min), max);
+}
