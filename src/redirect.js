@@ -1,119 +1,143 @@
 import { URL } from 'url';
-import { STATUS_CODES } from 'http';
 
+// --- Constants ---
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
-const RESTRICTED_HEADERS = ['content-length', 'cache-control', 'expires', 'date', 'etag'];
+
+// Headers that should NOT be present on a redirect response to prevent client confusion
+const STRIPPED_HEADERS = [
+  'content-length', 
+  'content-type',
+  'content-encoding',
+  'cache-control', 
+  'expires', 
+  'date', 
+  'etag', 
+  'last-modified'
+];
+
+// Basic regex to detect loopback/private addresses (Simple SSRF protection)
+// Note: For strict production environments, use a library like 'ipaddr.js'
+const IS_LOCALHOST = /^127\.|^0\.0\.|^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.|^localhost$|^::1$/i;
 
 /**
- * Checks if a status code is a valid redirect code..
+ * Validates and parses a URL. Returns the URL object or null.
+ * @param {string} urlString 
+ * @returns {URL|null}
  */
-function isValidRedirectStatusCode(statusCode) {
-  return Number.isInteger(statusCode) && statusCode >= 300 && statusCode < 400;
-}
+function parseAndValidateUrl(urlString) {
+  if (!urlString || typeof urlString !== 'string') return null;
 
-/**
- * Normalizes and sanitizes a URL string.
- */
-function normalizeUrl(urlString) {
-  return urlString.trim().replace(/\/+$/, '').replace(/\s+/g, '%20');
-}
-
-/**
- * Validates the given URL (protocol + hostname).
- */
-function isValidUrl(urlString) {
-  if (!urlString || typeof urlString !== 'string') return false;
   try {
-    const parsed = new URL(normalizeUrl(urlString));
-    return ALLOWED_PROTOCOLS.has(parsed.protocol) && Boolean(parsed.hostname);
+    // 1. Basic trim and cleanup
+    const cleanUrl = urlString.trim();
+    const parsed = new URL(cleanUrl);
+
+    // 2. Protocol Allowlist (No javascript: or file:)
+    if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) return null;
+
+    // 3. Hostname Validation
+    if (!parsed.hostname) return null;
+
+    // 4. SSRF Check: Block localhost/private IPs
+    if (IS_LOCALHOST.test(parsed.hostname)) return null;
+
+    return parsed;
   } catch {
-    return false;
+    return null;
   }
 }
 
 /**
- * Escapes HTML special characters for fallback pages.
+ * Escapes HTML characters to prevent XSS in the fallback body.
  */
 function escapeHtml(str) {
-  return str.replace(/[&<>"']/g, match =>
-    ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;',
-    }[match])
-  );
+  if (!str) return '';
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  };
+  return str.replace(/[&<>"']/g, match => map[match]);
 }
 
 /**
- * Generates minimal fallback HTML for redirect.
+ * Generates an HTML body for browsers that ignore headers (rare, but spec compliant).
  */
 function generateRedirectHtml(url) {
   const safeUrl = escapeHtml(url);
   return `<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="0;url=${safeUrl}">
-    <title>Redirecting...</title>
-  </head>
-  <body style="font-family:sans-serif;text-align:center;padding-top:2rem;">
-    Redirecting to <a href="${safeUrl}">${safeUrl}</a>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="refresh" content="0;url=${safeUrl}">
+  <title>Redirecting...</title>
+</head>
+<body>
+  <p>Redirecting to <a href="${safeUrl}">${safeUrl}</a></p>
+</body>
 </html>`;
 }
 
 /**
- * Main redirect middleware.
+ * Main Redirect Middleware
+ * @param {object} req - Express/Node request
+ * @param {object} res - Express/Node response
+ * @param {number} statusCode - HTTP Status (default 302)
  */
-function redirect(req, res, statusCode = 302, includeHtmlFallback = true) {
+export default function redirect(req, res, statusCode = 302) {
+  // 1. Fail safe: Do nothing if headers are already sent
+  if (res.headersSent) return;
+
   try {
-    if (!isValidRedirectStatusCode(statusCode)) {
-      console.error('[Redirect] Invalid status code:', statusCode);
-      return res.status(500).json({
-        error: 'Invalid redirect status code.',
-        details: `Expected 3xx, got ${statusCode}.`,
-      });
+    // 2. Validate Status Code
+    if (!Number.isInteger(statusCode) || statusCode < 300 || statusCode >= 400) {
+      console.warn(`[Redirect] Invalid status ${statusCode}, defaulting to 302`);
+      statusCode = 302;
     }
 
-    if (res.headersSent) {
-      console.warn('[Redirect] Headers already sent; skipping redirect.');
-      return;
+    // 3. Extract and Validate URL
+    // Supports params (path) or query string (?url=...)
+    const inputUrl = req.params?.url || req.query?.url;
+    const urlObj = parseAndValidateUrl(inputUrl);
+
+    if (!urlObj) {
+      console.error('[Redirect] Blocked invalid or unsafe URL:', inputUrl);
+      return res.status(400).json({ error: 'Invalid, missing, or unsafe URL.' });
     }
 
-    const targetUrl = req.params?.url;
-    if (!isValidUrl(targetUrl)) {
-      console.error('[Redirect] Invalid or missing target URL:', targetUrl);
-      return res.status(400).json({ error: 'Invalid or missing URL.' });
+    // 4. Serialize URL (Handles encoding automatically)
+    const finalUrl = urlObj.toString();
+
+    // 5. Clean Headers
+    // Remove headers that might conflict with a redirect
+    for (const name of STRIPPED_HEADERS) {
+      res.removeHeader(name);
     }
 
-    const normalizedUrl = normalizeUrl(targetUrl);
-    const encodedUrl = encodeURI(normalizedUrl);
+    // 6. Set Redirect Headers
+    res.setHeader('Location', finalUrl);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Expires', '0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('X-Content-Type-Options', 'nosniff'); // Security header
 
-    // Remove potentially conflicting headers
-    for (const header of RESTRICTED_HEADERS) {
-      const name = header.toLowerCase();
-      if (res.hasHeader(name)) res.removeHeader(name);
-    }
+    // 7. Send Response
+    // 301/302/303/307/308 all support an HTML body, but browsers usually ignore it.
+    // It is good practice for non-browser clients or debugging.
+    const html = generateRedirectHtml(finalUrl);
+    
+    // Explicitly set content type for the fallback body
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Length', Buffer.byteLength(html));
+    
+    res.status(statusCode).end(html);
 
-    res.setHeader('Location', encodedUrl);
-    res.setHeader('X-Redirect-Source', 'vercel-middleware');
-    res.setHeader('Cache-Control', 'no-store');
-
-    console.log(`[Redirect] → ${encodedUrl} [${statusCode}]`);
-
-    if (includeHtmlFallback && statusCode === 302) {
-      res.status(statusCode).send(generateRedirectHtml(encodedUrl));
-    } else {
-      res.status(statusCode).end();
-    }
   } catch (err) {
-    console.error('[Redirect Error]', err);
-    if (!res.headersSent)
+    console.error('[Redirect] Internal Error:', err);
+    if (!res.headersSent) {
       res.status(500).json({ error: 'Internal server error during redirect.' });
+    }
   }
 }
-
-export default redirect;
-
