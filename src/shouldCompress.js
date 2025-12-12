@@ -1,103 +1,89 @@
 import isAnimated from 'is-animated';
-import dotenv from 'dotenv';
 
-dotenv.config();
+// --- Configuration ---
+const ENV_MIN_LENGTH = parseInt(process.env.MIN_COMPRESS_LENGTH, 10);
+const MIN_COMPRESS_LENGTH = !isNaN(ENV_MIN_LENGTH) ? ENV_MIN_LENGTH : 1024; // Default 1KB
 
-// --- Configuration (initialized once) ---
-const DEFAULT_MIN_COMPRESS_LENGTH = 512;
-const ENV_MIN_LENGTH = Number(process.env.MIN_COMPRESS_LENGTH);
-const MIN_COMPRESS_LENGTH = Number.isFinite(ENV_MIN_LENGTH)
-  ? ENV_MIN_LENGTH
-  : DEFAULT_MIN_COMPRESS_LENGTH;
+// Thresholds
+const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 50; // ~50KB
+const ALREADY_COMPRESSED_THRESHOLD = MIN_COMPRESS_LENGTH * 100;   // ~100KB for WebP/AVIF
 
-const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 100; // ~51KB
-const APNG_THRESHOLD_LENGTH = MIN_COMPRESS_LENGTH * 200;           // ~102KB
-
-/**
- * Utility: Safe integer validation.
- */
-const isPositiveNumber = (n) => typeof n === 'number' && Number.isFinite(n) && n > 0;
+// Content Types
+const EXCLUDED_TYPES = new Set(['image/svg+xml', 'application/pdf', 'image/x-icon']);
+const LEGACY_TYPES = new Set(['image/png', 'image/gif']);
+const MODERN_TYPES = new Set(['image/webp', 'image/avif']);
 
 /**
- * Utility: Valid buffer check.
+ * Utility: Structured Logging
  */
-const isBufferValid = (buffer) => Buffer.isBuffer(buffer) && buffer.length > 0;
-
-/**
- * Returns true if MIME type represents an image.
- */
-const isImageType = (type) => typeof type === 'string' && type.startsWith('image/');
-
-/**
- * Returns true if file size meets threshold.
- */
-const hasSufficientSize = (size, threshold) => isPositiveNumber(size) && size >= threshold;
-
-/**
- * Transparent PNG/GIF optimization: skip compression for very small images.
- */
-const isTransparentImage = (type, size, webp) =>
-  !webp &&
-  (type === 'image/png' || type === 'image/gif') &&
-  !hasSufficientSize(size, MIN_TRANSPARENT_COMPRESS_LENGTH);
-
-/**
- * Detects small animated PNGs (APNG) to skip unnecessary recompression.
- */
-const isSmallAnimatedPng = (type, buffer, size) => {
-  if (type !== 'image/png' || hasSufficientSize(size, APNG_THRESHOLD_LENGTH) || !isBufferValid(buffer)) {
-    return false;
+function logSkip(reason, details) {
+  if (process.env.NODE_ENV !== 'production') {
+    // Only log distinct skip reasons in dev/debug mode to reduce noise
+    console.log(`[SKIP] Reason: ${reason}`, details);
   }
-  try {
-    return isAnimated(buffer);
-  } catch (err) {
-    console.warn(`[WARN] Animation check failed: ${err.message}`);
-    return false;
-  }
-};
-
-/**
- * Determines if compression should be applied based on thresholds and content.
- */
-function shouldCompress(req, buffer) {
-  const params = req?.params || {};
-  const { originType: rawType, originSize, webp } = params;
-
-  const validBuffer = isBufferValid(buffer);
-  if (!rawType || !isPositiveNumber(originSize) || !validBuffer) {
-    logSkip('invalid-input', { rawType, originSize, bufferValid: validBuffer });
-    return false;
-  }
-
-  const originType = rawType.toLowerCase();
-
-  if (!isImageType(originType)) {
-    return logSkip('non-image', { originType });
-  }
-  if (!hasSufficientSize(originSize, MIN_COMPRESS_LENGTH)) {
-    return logSkip('too-small', { originSize });
-  }
-  if (isTransparentImage(originType, originSize, webp)) {
-    return logSkip('transparent-small', { originType, originSize });
-  }
-  if (isSmallAnimatedPng(originType, buffer, originSize)) {
-    return logSkip('animated-small', { originType, originSize });
-  }
-
-  console.log(`[INFO] compress reason="eligible" type=${originType} size=${originSize}`);
-  return true;
-}
-
-/**
- * Centralized structured logging for skips.
- */
-function logSkip(reason, context = {}) {
-  const ctx = Object.entries(context)
-    .map(([k, v]) => `${k}=${v}`)
-    .join(' ');
-  console.log(`[INFO] skip reason="${reason}" ${ctx}`);
   return false;
 }
 
-export default shouldCompress;
+/**
+ * Determines if an image should be compressed/converted.
+ * 
+ * Logic Flow:
+ * 1. Validate Input
+ * 2. Check Blocklist (SVG, etc)
+ * 3. Check Size (Too small = overhead > savings)
+ * 4. Check Format Specifics (Don't recompress small WebPs, don't break animations)
+ */
+export default function shouldCompress(req, buffer) {
+  const { originType, originSize, webp, grayscale, quality } = req.params || {};
 
+  // 1. Validate Input
+  if (!originType || !originSize || !Buffer.isBuffer(buffer)) {
+    return false;
+  }
+
+  // 2. Non-Image and Vector Checks
+  if (!originType.startsWith('image/') || EXCLUDED_TYPES.has(originType)) {
+    return false; // Pass through SVGs, Icons, and non-images
+  }
+
+  // 3. Size Checks: Too Small
+  if (originSize < MIN_COMPRESS_LENGTH) {
+    return false;
+  }
+
+  // 4. "Already Modern" Check
+  // If the source is already WebP/AVIF, re-compressing it causes quality loss 
+  // and CPU waste, unless the file is huge or user explicitly requested edits (grayscale/quality).
+  if (MODERN_TYPES.has(originType)) {
+    const isEditing = Boolean(grayscale || quality);
+    const isLarge = originSize > ALREADY_COMPRESSED_THRESHOLD;
+    
+    if (!isEditing && !isLarge) {
+      return logSkip('already-compressed', { originType, originSize });
+    }
+  }
+
+  // 5. Transparent/Legacy Check (PNG/GIF)
+  // If we are NOT converting to WebP (req.params.webp is false), 
+  // we shouldn't compress small PNGs because converting them to JPEG kills transparency.
+  if (LEGACY_TYPES.has(originType) && !webp) {
+    if (originSize < MIN_TRANSPARENT_COMPRESS_LENGTH) {
+      return logSkip('transparent-small', { originType, originSize });
+    }
+  }
+
+  // 6. Animation Check
+  // Re-encoding animations (GIF/APNG/WebP-Anim) is extremely CPU heavy.
+  // Unless your 'compress' module explicitly handles frame extraction and re-encoding,
+  // it is safer to bypass them.
+  try {
+    if (isAnimated(buffer)) {
+      return logSkip('animated', { originType });
+    }
+  } catch (err) {
+    console.warn(`⚠️ Animation check error: ${err.message}`);
+    return false; // Fail safe: don't compress if we can't verify
+  }
+
+  return true;
+}
