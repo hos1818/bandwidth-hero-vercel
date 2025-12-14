@@ -19,7 +19,6 @@ function normalizeUrl(input) {
 
   let decoded;
   try {
-    // Decode ONCE because query param came encoded
     decoded = decodeURIComponent(input);
   } catch {
     decoded = input;
@@ -32,16 +31,22 @@ function normalizeUrl(input) {
     return '';
   }
 
-  // Encode ONLY pathname segments
+  // 🔥 Strip query for redditmedia images ONLY
+  if (
+    url.hostname.endsWith('redditmedia.com') &&
+    /\.(png|jpe?g|webp)$/i.test(url.pathname)
+  ) {
+    url.search = '';
+  }
+
+  // Encode ONLY path segments
   url.pathname = url.pathname
     .split('/')
     .map(seg => encodeURIComponent(decodeURIComponent(seg)))
     .join('/');
 
-  // ❌ DO NOT TOUCH url.search
   return url.href;
 }
-
 
 /**
  * Validates URL syntax and required protocol.
@@ -128,6 +133,7 @@ function params(req, res, next) {
 }
 
 export default params;
+
 
 
 
