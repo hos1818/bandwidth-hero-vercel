@@ -16,7 +16,7 @@ const MIN_QUALITY = clampInt(process.env.MIN_QUALITY, 10, 1, 100);
  */
 function normalizeUrl(url) {
   if (typeof url !== 'string') return '';
-  return decodeURIComponent(url.trim().replace(/\/+$/, ''));
+  return decodeURIComponent(url.trim().replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://'));
 }
 
 /**
@@ -104,3 +104,4 @@ function params(req, res, next) {
 }
 
 export default params;
+
