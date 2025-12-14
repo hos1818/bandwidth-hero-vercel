@@ -17,25 +17,26 @@ const MIN_QUALITY = clampInt(process.env.MIN_QUALITY, 10, 1, 100);
 function normalizeUrl(input) {
   if (typeof input !== 'string') return '';
 
+  let decoded;
+
+  // 1️⃣ Decode query param ONCE
+  try {
+    decoded = decodeURIComponent(input);
+  } catch {
+    decoded = input;
+  }
+
   let url;
   try {
-    url = new URL(input);
+    url = new URL(decoded);
   } catch {
     return '';
   }
 
-  // ✅ Strip query for redditmedia images
-  if (
-    url.hostname.endsWith('redditmedia.com') &&
-    /\.(png|jpe?g|webp)$/i.test(url.pathname)
-  ) {
-    url.search = '';
-  }
-
-  // ✅ Encode ONLY — NEVER decode here
+  // 2️⃣ Encode ONLY path segments
   url.pathname = url.pathname
     .split('/')
-    .map(seg => encodeURIComponent(seg))
+    .map(seg => encodeURIComponent(decodeURIComponent(seg)))
     .join('/');
 
   return url.href;
@@ -126,6 +127,7 @@ function params(req, res, next) {
 }
 
 export default params;
+
 
 
 
