@@ -17,6 +17,12 @@ const MIN_QUALITY = clampInt(process.env.MIN_QUALITY, 10, 1, 100);
 function normalizeUrl(input) {
   if (typeof input !== 'string') return '';
 
+  // 1️⃣ Remove anything after image extension
+  input = input.replace(
+    /(\.(?:png|jpe?g|webp)).*$/i,
+    '$1'
+  );
+  
   let decoded;
 
   // 1️⃣ Decode query param ONCE
@@ -127,6 +133,7 @@ function params(req, res, next) {
 }
 
 export default params;
+
 
 
 
