@@ -18,9 +18,8 @@ function normalizeUrl(input) {
   if (typeof input !== 'string') return '';
 
   let decoded;
-
-  // 1️⃣ Decode query param ONCE
   try {
+    // Decode ONCE because query param came encoded
     decoded = decodeURIComponent(input);
   } catch {
     decoded = input;
@@ -33,14 +32,16 @@ function normalizeUrl(input) {
     return '';
   }
 
-  // 2️⃣ Encode ONLY path segments
+  // Encode ONLY pathname segments
   url.pathname = url.pathname
     .split('/')
     .map(seg => encodeURIComponent(decodeURIComponent(seg)))
     .join('/');
 
+  // ❌ DO NOT TOUCH url.search
   return url.href;
 }
+
 
 /**
  * Validates URL syntax and required protocol.
@@ -127,6 +128,7 @@ function params(req, res, next) {
 }
 
 export default params;
+
 
 
 
