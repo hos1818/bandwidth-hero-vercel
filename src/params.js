@@ -16,7 +16,17 @@ const MIN_QUALITY = clampInt(process.env.MIN_QUALITY, 10, 1, 100);
  */
 function normalizeUrl(url) {
   if (typeof url !== 'string') return '';
-  return decodeURIComponent(url.trim().replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://'));
+
+  let cleaned = url.trim()
+    .replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://')
+    .replace(/ /g, '%20'); // handle spaces safely
+
+  try {
+    return decodeURIComponent(cleaned);
+  } catch {
+    // If decoding fails, return encoded version (still valid)
+    return cleaned;
+  }
 }
 
 /**
@@ -104,4 +114,5 @@ function params(req, res, next) {
 }
 
 export default params;
+
 
