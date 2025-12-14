@@ -14,18 +14,32 @@ const MIN_QUALITY = clampInt(process.env.MIN_QUALITY, 10, 1, 100);
 /**
  * Normalizes a URL safely.
  */
-function normalizeUrl(url) {
-  if (typeof url !== 'string') return '';
+function normalizeUrl(rawUrl) {
+  if (typeof rawUrl !== 'string') return '';
 
-  let cleaned = url.trim()
-    .replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://')
-    .replace(/ /g, '%20'); // handle spaces safely
+  // Step 1: trim & remove proxy prefix
+  let url = rawUrl.trim()
+    .replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://');
 
   try {
-    return decodeURIComponent(cleaned);
+    // Step 2: decode ONCE (query param decoding)
+    url = decodeURIComponent(url);
   } catch {
-    // If decoding fails, return encoded version (still valid)
-    return cleaned;
+    // ignore malformed encoding
+  }
+
+  try {
+    const u = new URL(url);
+
+    // Step 3: safely encode only the PATH
+    u.pathname = u.pathname
+      .split('/')
+      .map(segment => encodeURIComponent(segment))
+      .join('/');
+
+    return u.toString();
+  } catch {
+    return '';
   }
 }
 
@@ -114,5 +128,6 @@ function params(req, res, next) {
 }
 
 export default params;
+
 
 
