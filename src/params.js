@@ -32,10 +32,10 @@ function normalizeUrl(input) {
     url.search = '';
   }
 
-  // ✅ Encode path segments safely
+  // ✅ Encode ONLY — NEVER decode here
   url.pathname = url.pathname
     .split('/')
-    .map(seg => encodeURIComponent(decodeURIComponent(seg)))
+    .map(seg => encodeURIComponent(seg))
     .join('/');
 
   return url.href;
@@ -126,6 +126,7 @@ function params(req, res, next) {
 }
 
 export default params;
+
 
 
 
