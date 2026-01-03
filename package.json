@@ -17,7 +17,7 @@
     "basic-auth": "^2.0.1",
     "sanitize-filename": "^1.6.3",
     "express": "^5.2.1",
-    "got": "^14.6.5",
+    "got": "^14.6.6",
     "http2-wrapper": "^2.2.1",
     "is-animated": "^2.0.2",
     "sharp": "^0.34.5",
